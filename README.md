@@ -72,8 +72,11 @@ which permissions were added or removed by name.
   every channel, and can announce it, all in one press
 - **Bulk changes**, to set slowmode everywhere or strip one permission off every role
   holding it
-- **Broadcast**, to write a message with saved templates and see exactly how many people
-  each ping reaches before you send it
+- **Broadcast**, an announcement composer: a title, a body with saved templates,
+  attachments, and the exact number of people each ping reaches before you send. It
+  posts as you with the title as a heading, or through a webhook as a real embed with
+  a colour, since a user account cannot send an embed on its own. The confirmation
+  says which of the two you are about to do
 - **Look around**, for the read only stuff: every webhook, the ban list, the join queue,
   who moderates, an anti raid checklist, and who can see any given channel
 - **Compare roles**, side by side, including the same role across two different servers
