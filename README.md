@@ -12,7 +12,7 @@ forty channel permission screens to find the one that was left open.
 You need an Equicord or Vencord source build. From the root of that checkout:
 
 ```bash
-git clone https://github.com/Just-Me-22/Server-Safety-Tools-uwu src/userplugins/serverSafety
+git clone https://github.com/Just-Me-22/ServerSafety src/userplugins/serverSafety
 pnpm build
 ```
 
