@@ -63,6 +63,10 @@ which permissions were added or removed by name.
 - **Recent joins**, with account age, which invite each person came through, and flags
   for the things that matter: brand new accounts, no avatar, names that are identical
   once you strip the digits, and clusters of people arriving in the same minute
+- **What one person can do**, from any member's right-click menu: their real reach
+  channel by channel, every power they hold, and which role is handing it to them.
+  Open a power and you can switch it off from the role granting it without leaving
+  the window, and it warns you when more than one role is keeping it alive
 - **Per member actions**: timeout, warn by DM, quarantine, kick, ban
 - **Emergency**, which raises verification, scans media, pauses invites and DMs, locks
   every channel, and can announce it, all in one press
