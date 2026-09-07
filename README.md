@@ -80,6 +80,8 @@ which permissions were added or removed by name.
 - **Look around**, for the read only stuff: every webhook, the ban list, the join queue,
   who moderates, an anti raid checklist, and who can see any given channel
 - **Compare roles**, side by side, including the same role across two different servers
+- **Clear messages**, filtered by author, prefix, text, bots, attachments or links, with
+  a preview of exactly what matched before anything is deleted
 
 ## The undo
 
@@ -95,6 +97,25 @@ has edited that role or channel since, it says which ones and makes you confirm,
 of quietly overwriting their newer work.
 
 A kick is the only thing here that cannot be undone, and it says so before you press it.
+
+## Clearing messages, and why it is slow
+
+Discord has no bulk delete for a user account. Bots have one, which is how a bot like
+Wick clears a thousand messages in about a second: ten requests of a hundred each. That
+endpoint does not exist for us, so clearing is one request per message.
+
+So the tool paces itself at roughly one a second and defaults to a hundred at a time,
+which takes about two minutes and looks like what it is, somebody moderating. The cap is
+a setting and you can raise it to a thousand, which takes about twenty minutes. That is
+your call to make, but twenty minutes of scripted deletion from a user account is the
+clearest self bot signature there is, and it is worth knowing that before you change the
+number rather than after.
+
+Pinned messages are skipped unless you tick the box, and there is a stop button that
+takes effect on the next message.
+
+This is the only thing in the plugin with no undo. History records what was cleared as a
+record of what you did, and says in the entry itself that it cannot be reversed.
 
 ## What it will not do
 
