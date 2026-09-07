@@ -69,6 +69,7 @@ function MemberPower({ guild, userId, modalProps }: { guild: Guild; userId: stri
     const everyoneRole = roles.get(guild.id);
 
     const [showChannels, setShowChannels] = useState(false);
+    const [openPower, setOpenPower] = useState<string>();
     const [edits, setEdits] = useState<Record<string, bigint>>({});
     const [dropped, setDropped] = useState<string[]>([]);
     const [busy, setBusy] = useState(false);
@@ -106,7 +107,12 @@ function MemberPower({ guild, userId, modalProps }: { guild: Guild; userId: stri
     const readOnly = visible.filter(c => !postable.includes(c));
     const hidden = channels.filter(c => !visible.includes(c));
 
-    const powers = POWERS.filter(power => has(base, power.perm));
+    let untouched = everyoneRole?.permissions ?? 0n;
+    for (const role of held) untouched |= role.permissions;
+
+    // listed from what they started with as well as what the edits leave, so a row
+    // does not vanish the moment you switch it off and strand you
+    const powers = POWERS.filter(power => has(base, power.perm) || has(untouched, power.perm));
 
     // @everyone is not in member.roles but is very often where the power comes from
     const sources = [everyoneRole, ...held]
@@ -293,11 +299,55 @@ function MemberPower({ guild, userId, modalProps }: { guild: Guild; userId: stri
                             <Text variant="text-sm/normal">They can talk where they are allowed to talk, and nothing else.</Text>
                         </div>
                     ) : (
-                        powers.map(power => (
-                            <div key={power.perm} className={cl("safety-row", { critical: power.perm === "ADMINISTRATOR" })}>
-                                <div className={cl("safety-title")}>They can {power.label}</div>
-                            </div>
-                        ))
+                        powers.map(power => {
+                            const from = sources.filter(role =>
+                                has(role.permissions, power.perm) || has(permsOf(role), power.perm));
+                            const live = has(base, power.perm);
+
+                            return (
+                                <div
+                                    key={power.perm}
+                                    className={cl("safety-row", {
+                                        critical: power.perm === "ADMINISTRATOR" && live,
+                                        "power-off": !live
+                                    })}
+                                >
+                                    <button
+                                        type="button"
+                                        className={cl("linkish", "safety-title", "row-open")}
+                                        aria-expanded={openPower === power.perm}
+                                        onClick={() => setOpenPower(openPower === power.perm ? undefined : power.perm)}
+                                    >
+                                        They can {power.label}
+                                        {!live && <span className={cl("power-locked")}>switched off, not sent yet</span>}
+                                    </button>
+
+                                    {openPower === power.perm && (
+                                        <div className={cl("power-from")}>
+                                            <div className={cl("safety-detail")}>
+                                                {from.length === 1
+                                                    ? `${from[0].id === guild.id ? "@everyone" : from[0].name} is what gives them this.`
+                                                    : `${list(from.map(role => role.id === guild.id ? "@everyone" : role.name))} each give them this, so it stays until every one of them is off.`}
+                                            </div>
+
+                                            {from.map(role => (
+                                                <FormSwitch
+                                                    key={role.id}
+                                                    hideBorder
+                                                    title={role.id === guild.id ? "@everyone" : role.name}
+                                                    description={canEdit(role)
+                                                        ? "Changing this changes the role, so it affects everyone who holds it"
+                                                        : "This role sits at or above your own, so you cannot edit it"}
+                                                    value={has(permsOf(role), power.perm)}
+                                                    disabled={!canEdit(role) || busy}
+                                                    onChange={on => toggle(role, power.perm, on)}
+                                                />
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })
                     )}
 
                     {!admin && moderating.length > 0 && moderating.length < channels.length && (
@@ -307,41 +357,29 @@ function MemberPower({ guild, userId, modalProps }: { guild: Guild; userId: stri
                         </div>
                     )}
 
-                    {sources.map(role => {
-                        const editable = canEdit(role);
-                        const isEveryone = role.id === guild.id;
-
-                        return (
-                            <div key={role.id} className={cl("power-role")}>
-                                <div className={cl("safety-title")}>
-                                    {isEveryone ? "@everyone" : role.name}
-                                    {!editable && <span className={cl("power-locked")}>you cannot edit this role</span>}
-                                </div>
-
-                                {POWERS.filter(power => has(role.permissions, power.perm) || has(permsOf(role), power.perm)).map(power => (
-                                    <FormSwitch
-                                        key={power.perm}
-                                        hideBorder
-                                        title={prettyPerm(power.perm)}
-                                        value={has(permsOf(role), power.perm)}
-                                        disabled={!editable || busy}
-                                        onChange={on => toggle(role, power.perm, on)}
-                                    />
-                                ))}
-
-                                {!isEveryone && (
-                                    <FormSwitch
-                                        hideBorder
-                                        title={`${name} keeps this role`}
-                                        value={!dropped.includes(role.id)}
-                                        disabled={!canManage || role.managed || (!iOwn && role.position >= myTop) || busy}
-                                        description={role.managed ? "A bot or boost role, which cannot be taken away by hand" : undefined}
-                                        onChange={keep => setDropped(prev => keep ? prev.filter(id => id !== role.id) : [...prev, role.id])}
-                                    />
-                                )}
+                    {held.length > 0 && (
+                        <div className={cl("power-role")}>
+                            <div className={cl("safety-title")}>Which roles they keep</div>
+                            <div className={cl("safety-detail")}>
+                                Taking a role away here only affects {name}. To change what a role can do,
+                                open one of the powers above instead.
                             </div>
-                        );
-                    })}
+
+                            {held.map(role => (
+                                <FormSwitch
+                                    key={role.id}
+                                    hideBorder
+                                    title={role.name}
+                                    value={!dropped.includes(role.id)}
+                                    disabled={!canManage || role.managed || (!iOwn && role.position >= myTop) || busy}
+                                    description={role.managed
+                                        ? "A bot or boost role, which cannot be taken away by hand"
+                                        : (!iOwn && role.position >= myTop) ? "Sits at or above your own highest role" : undefined}
+                                    onChange={keep => setDropped(prev => keep ? prev.filter(id => id !== role.id) : [...prev, role.id])}
+                                />
+                            ))}
+                        </div>
+                    )}
                 </ScrollerThin>
 
                 {dirty && (
