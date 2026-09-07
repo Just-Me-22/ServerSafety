@@ -19,6 +19,7 @@ import { openBulkModal } from "./Bulk";
 import { openEmergencyModal } from "./Emergency";
 import { openHistoryModal } from "./HistoryModal";
 import { openInspectModal } from "./Inspect";
+import { openPurgeModal } from "./Purge";
 import { openRecentJoinsModal } from "./RecentJoins";
 import { openRoleDiffModal } from "./RoleDiff";
 
@@ -865,6 +866,14 @@ export const SafetyTab = ErrorBoundary.wrap(({ guild, onClose }: { guild: Guild;
                                 onClick={() => openBulkModal(guild)}
                             >
                                 Bulk changes
+                            </Button>
+                            <Button
+                                size={Button.Sizes.SMALL}
+                                look={Button.Looks.LINK}
+                                className={cl("safety-panic")}
+                                onClick={() => openPurgeModal(guild)}
+                            >
+                                Clear messages
                             </Button>
                             <Button
                                 size={Button.Sizes.SMALL}

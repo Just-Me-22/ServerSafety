@@ -7,14 +7,14 @@
 import "./styles.css";
 
 import { findGroupChildrenByChildId, NavContextMenuPatchCallback } from "@api/ContextMenu";
-import { definePluginSettings } from "@api/Settings";
-import definePlugin, { OptionType } from "@utils/types";
+import definePlugin from "@utils/types";
 import { Guild } from "@vencord/discord-types";
 import { GuildStore, Menu } from "@webpack/common";
 
 import { startWatch, stopWatch } from "./liveWatch";
 import { openMemberPowerModal } from "./MemberPower";
 import { openGuildSafetyModal } from "./SafetyModal";
+import { settings } from "./settings";
 import { startWatchers, stopWatchers } from "./watchers";
 
 const GuildPatch: NavContextMenuPatchCallback = (children, { guild }: { guild?: Guild; }) => {
@@ -47,24 +47,6 @@ const UserPatch: NavContextMenuPatchCallback = (children, { user, guildId }: { u
         />
     );
 };
-
-const settings = definePluginSettings({
-    liveWatch: {
-        type: OptionType.BOOLEAN,
-        description: "Tell me when a server gains a new critical safety problem while I am online",
-        default: true
-    },
-    watchSpikes: {
-        type: OptionType.BOOLEAN,
-        description: "Tell me when a channel suddenly floods with messages",
-        default: false
-    },
-    watchNewAccounts: {
-        type: OptionType.BOOLEAN,
-        description: "Tell me when a brand new account posts a link or an invite",
-        default: false
-    }
-});
 
 export default definePlugin({
     name: "ServerSafety",
