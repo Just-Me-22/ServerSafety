@@ -713,3 +713,47 @@
         animation: none;
     }
 }
+
+.vc-ss-cast-file {
+    flex: 0 0 auto;
+    padding: 4px 12px;
+    border-radius: 6px;
+    background: var(--background-mod-strong);
+    color: var(--text-default);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.vc-ss-cast-file:hover {
+    background: var(--background-mod-normal);
+}
+
+.vc-ss-cast-colour {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+}
+
+.vc-ss-cast-embed {
+    margin-top: 0.25em;
+    padding: 8px 10px;
+    border-left: 4px solid var(--brand-500);
+    border-radius: 4px;
+    background: var(--background-mod-normal);
+}
+
+.vc-ss-cast-embed-title {
+    margin-bottom: 3px;
+    color: var(--text-default);
+    font-weight: 700;
+}
+
+.vc-ss-cast-embed .vc-ss-cast-preview {
+    padding: 0;
+    background: none;
+}

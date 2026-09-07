@@ -17,10 +17,18 @@ import { deleteTemplate, fill, readTemplates, saveTemplate, Template } from "./t
 const cl = classNameFactory("vc-ss-");
 
 const TEXTY = new Set([0, 5]);
+const MB = 1024 * 1024;
 
 export function sendableChannels(guild: Guild): Channel[] {
     return guildChannels(guild.id)
         .filter(channel => TEXTY.has(channel.type) && PermissionStore.can(PermissionsBits.SEND_MESSAGES, channel));
+}
+
+interface Hook {
+    id: string;
+    name: string;
+    token?: string | null;
+    channel_id: string;
 }
 
 function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: string; modalProps: RenderModalProps; }) {
@@ -30,7 +38,13 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
     const [channelId, setChannelId] = useState(channels[0]?.id ?? "");
     const [picked, setPicked] = useState<string[]>([]);
     const [everyone, setEveryone] = useState(false);
+    const [title, setTitle] = useState("");
     const [body, setBody] = useState(initial ?? "");
+    const [files, setFiles] = useState<File[]>([]);
+    const [asWebhook, setAsWebhook] = useState(false);
+    const [colour, setColour] = useState("#5865f2");
+    const [hooks, setHooks] = useState<Hook[]>([]);
+    const [hookId, setHookId] = useState("");
     const [templates, setTemplates] = useState<Template[]>([]);
     const [name, setName] = useState("");
     const [counts, setCounts] = useState<Record<string, number>>({});
@@ -46,6 +60,10 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
             .then(({ body }) => { if (live) setCounts(body ?? {}); })
             .catch(() => { /* needs Manage Roles; the composer still works without the numbers */ });
 
+        RestAPI.get({ url: `/guilds/${guild.id}/webhooks` })
+            .then(({ body }) => { if (live) setHooks((body as Hook[]).filter(hook => hook.token)); })
+            .catch(() => { /* needs Manage Webhooks, which only the embed route wants */ });
+
         return () => { live = false; };
     }, [guild.id]);
 
@@ -53,46 +71,69 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
     const channel = channels.find(c => c.id === channelId);
     const chosen = roles.filter(role => picked.includes(role.id));
 
+    const here = hooks.filter(hook => hook.channel_id === channelId);
+    const hook = here.find(h => h.id === hookId) ?? here[0];
+
     const mentions = [everyone ? "@everyone" : "", ...chosen.map(role => `<@&${role.id}>`)].filter(Boolean).join(" ");
+    const reach = everyone ? memberCount : chosen.reduce((sum, role) => sum + (counts[role.id] ?? 0), 0);
+
     const values = {
         server: guild.name,
         channel: channel ? `#${channel.name}` : "",
         roles: mentions,
-        count: String(everyone ? memberCount : chosen.reduce((sum, role) => sum + (counts[role.id] ?? 0), 0))
+        count: String(reach)
     };
 
-    const filled = fill(body, values);
-    const content = body.includes("{roles}") || !mentions ? filled : `${mentions}\n${filled}`;
+    const filledTitle = fill(title, values);
+    const filledBody = fill(body, values);
 
-    const reach = everyone
-        ? memberCount
-        : chosen.reduce((sum, role) => sum + (counts[role.id] ?? 0), 0);
+    // as me there is no embed to put a title in, so it becomes a markdown heading
+    const asText = [
+        mentions,
+        filledTitle && `## ${filledTitle}`,
+        filledBody
+    ].filter(Boolean).join("\n");
 
-    // a role that is not mentionable only pings if you may mention everyone here
     const canMentionAnything = channel != null && PermissionStore.can(PermissionsBits.MENTION_EVERYONE, channel);
     const silent = chosen.filter(role => !role.mentionable && !canMentionAnything);
+    const bytes = files.reduce((sum, file) => sum + file.size, 0);
+
+    const allowed = { parse: everyone ? ["everyone"] : [], roles: picked, users: [] };
 
     async function send() {
         setBusy(true);
         try {
-            const { body: message } = await RestAPI.post({
-                url: `/channels/${channelId}/messages`,
-                body: {
-                    content,
-                    // only what was ticked can ping, whatever the text happens to contain
-                    allowed_mentions: {
-                        parse: everyone ? ["everyone"] : [],
-                        roles: picked,
-                        users: []
-                    }
+            const attachments = files.map((file, i) => ({ name: `files[${i}]`, file, filename: file.name }));
+
+            const payload = asWebhook
+                ? {
+                    content: mentions || undefined,
+                    embeds: [{
+                        title: filledTitle || undefined,
+                        description: filledBody || undefined,
+                        color: parseInt(colour.slice(1), 16)
+                    }],
+                    allowed_mentions: allowed
                 }
-            });
+                : { content: asText, allowed_mentions: allowed };
+
+            const url = asWebhook && hook
+                ? `/webhooks/${hook.id}/${hook.token}?wait=true`
+                : `/channels/${channelId}/messages`;
+
+            // superagent takes files through `attachments` and the json alongside them
+            // as a payload_json field, which is the shape Discord's own client uses
+            const { body: message } = await RestAPI.post(attachments.length
+                ? { url, attachments, fields: [{ name: "payload_json", value: JSON.stringify(payload) }] } as any
+                : { url, body: payload });
 
             await record({
                 guildId: guild.id,
                 guildName: guild.name,
-                what: `Posted in #${channel?.name}${reach ? `, pinging ${plural(reach, "person")}` : ""}`,
-                targets: [{ kind: "message", channelId, name: channel?.name ?? channelId, messageId: message.id }]
+                what: `Posted ${filledTitle ? `"${filledTitle}" ` : ""}in #${channel?.name}${reach ? `, pinging ${plural(reach, "person")}` : ""}`,
+                targets: message?.id
+                    ? [{ kind: "message", channelId, name: channel?.name ?? channelId, messageId: message.id }]
+                    : []
             });
 
             Toasts.show({ id: Toasts.genId(), type: Toasts.Type.SUCCESS, message: "Sent" });
@@ -107,6 +148,28 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
             setBusy(false);
         }
     }
+
+    async function makeHook() {
+        setBusy(true);
+        try {
+            const { body: made } = await RestAPI.post({
+                url: `/channels/${channelId}/webhooks`,
+                body: { name: "Announcements" }
+            });
+            setHooks(prev => [...prev, made]);
+            setHookId(made.id);
+        } catch (error) {
+            Toasts.show({
+                id: Toasts.genId(),
+                type: Toasts.Type.FAILURE,
+                message: `Discord refused that: ${String((error as any)?.body?.message ?? error)}`
+            });
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    const blocked = asWebhook && !hook;
 
     return (
         <Modal {...modalProps} size="md" title={<Forms.FormTitle tag="h5">Post to {guild.name}</Forms.FormTitle>}>
@@ -143,6 +206,10 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
                     </div>
                 )}
 
+                <div className={cl("cast-row")}>
+                    <TextInput value={title} placeholder="Title, optional" onChange={setTitle} />
+                </div>
+
                 <textarea
                     className={cl("cast-body")}
                     value={body}
@@ -166,6 +233,76 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
                         Save
                     </Button>
                 </div>
+
+                <div className={cl("cast-row")}>
+                    <label className={cl("cast-file")}>
+                        Add files
+                        <input
+                            type="file"
+                            multiple
+                            hidden
+                            onChange={e => {
+                                setFiles(prev => [...prev, ...Array.from(e.currentTarget.files ?? [])]);
+                                e.currentTarget.value = "";
+                            }}
+                        />
+                    </label>
+                    <Text variant="text-sm/normal">
+                        {files.length
+                            ? `${plural(files.length, "file")}, ${(bytes / MB).toFixed(1)}MB`
+                            : "nothing attached"}
+                    </Text>
+                </div>
+
+                {files.map((file, i) => (
+                    <div key={`${file.name}-${i}`} className={cl("cast-row")}>
+                        <Text variant="text-sm/normal">{file.name}</Text>
+                        <Button
+                            size={Button.Sizes.SMALL}
+                            look={Button.Looks.LINK}
+                            onClick={() => setFiles(prev => prev.filter((_, at) => at !== i))}
+                        >
+                            Remove
+                        </Button>
+                    </div>
+                ))}
+
+                <FormSwitch
+                    hideBorder
+                    title="Send it as a real embed"
+                    description="Goes through a webhook, so it gets a title bar and a colour but posts under the webhook's name rather than yours"
+                    value={asWebhook}
+                    disabled={busy}
+                    onChange={setAsWebhook}
+                />
+
+                {asWebhook && (
+                    <div className={cl("cast-row")}>
+                        {here.length
+                            ? (
+                                <Select
+                                    options={here.map(h => ({ label: h.name, value: h.id }))}
+                                    select={setHookId}
+                                    isSelected={value => value === hook?.id}
+                                    serialize={String}
+                                />
+                            )
+                            : <Text variant="text-sm/normal">No webhook in this channel yet</Text>}
+
+                        <input
+                            type="color"
+                            className={cl("cast-colour")}
+                            value={colour}
+                            onChange={e => setColour(e.currentTarget.value)}
+                        />
+
+                        {!here.length && (
+                            <Button size={Button.Sizes.SMALL} look={Button.Looks.LINK} disabled={busy} onClick={makeHook}>
+                                Make one
+                            </Button>
+                        )}
+                    </div>
+                )}
 
                 <FormSwitch
                     hideBorder
@@ -200,10 +337,23 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
 
                 <div className={cl("safety-summary")}>
                     <Text variant="text-sm/semibold">Preview</Text>
-                    <div className={cl("cast-preview")}>{content || "Nothing yet."}</div>
+                    {asWebhook
+                        ? (
+                            <div className={cl("cast-embed")} style={{ borderLeftColor: colour }}>
+                                {filledTitle && <div className={cl("cast-embed-title")}>{filledTitle}</div>}
+                                <div className={cl("cast-preview")}>{filledBody || "Nothing yet."}</div>
+                            </div>
+                        )
+                        : <div className={cl("cast-preview")}>{asText || "Nothing yet."}</div>}
+
                     {silent.length > 0 && (
                         <Text variant="text-sm/normal">
                             {list(silent.map(role => role.name))} {silent.length === 1 ? "is" : "are"} not mentionable and you cannot mention everyone here, so {silent.length === 1 ? "that ping" : "those pings"} will show as text but notify nobody.
+                        </Text>
+                    )}
+                    {blocked && (
+                        <Text variant="text-sm/normal">
+                            An embed needs a webhook in that channel and there is not one you can use. Make one above, or turn the embed off and it posts as you.
                         </Text>
                     )}
                 </div>
@@ -215,13 +365,16 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
                     <Button
                         size={Button.Sizes.SMALL}
                         color={Button.Colors.BRAND}
-                        disabled={busy || !content.trim() || !channelId}
+                        disabled={busy || blocked || !channelId || (!filledBody.trim() && !filledTitle.trim() && !files.length)}
                         onClick={() => Alerts.show({
                             title: `Post to #${channel?.name}?`,
                             body: (
                                 <div>
-                                    <p>{content}</p>
+                                    {filledTitle && <p><strong>{filledTitle}</strong></p>}
+                                    <p>{filledBody}</p>
+                                    {files.length > 0 && <p>With {list(files.map(f => f.name))}.</p>}
                                     <p><strong>{reach ? `This pings ${plural(reach, "person")}.` : "This pings nobody."}</strong></p>
+                                    {asWebhook && <p>It will post as {hook?.name}, not as you.</p>}
                                 </div>
                             ),
                             confirmText: "Post it",
