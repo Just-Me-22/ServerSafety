@@ -59,10 +59,11 @@ const UserPatch: NavContextMenuPatchCallback = (children, { user, guildId }: { u
     );
 };
 
-/** e.code rather than e.key: on some layouts a modifier changes the character sent,
- *  and a key comparison then never matches */
+/** ctrl+alt rather than ctrl+shift, which dictation tools and discord itself already
+ *  take. e.code rather than e.key: with alt held, windows sends a different character
+ *  on some layouts and a key comparison never matches. */
 function shortcut(e: KeyboardEvent) {
-    if (!e.ctrlKey || !e.shiftKey || e.altKey || e.code !== "KeyS") return;
+    if (!e.ctrlKey || !e.altKey || e.shiftKey || e.code !== "KeyS") return;
 
     const guildId = SelectedGuildStore.getGuildId();
     const guild = guildId ? GuildStore.getGuild(guildId) : null;
