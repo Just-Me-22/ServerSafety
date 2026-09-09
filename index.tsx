@@ -15,6 +15,7 @@ import { startWatch, stopWatch } from "./liveWatch";
 import { openMemberPowerModal } from "./MemberPower";
 import { openGuildSafetyModal } from "./SafetyModal";
 import { settings } from "./settings";
+import { startTempBans, stopTempBans } from "./tempBans";
 import { startWatchers, stopWatchers } from "./watchers";
 
 const GuildPatch: NavContextMenuPatchCallback = (children, { guild }: { guild?: Guild; }) => {
@@ -50,7 +51,7 @@ const UserPatch: NavContextMenuPatchCallback = (children, { user, guildId }: { u
 
 export default definePlugin({
     name: "ServerSafety",
-    description: "Audits a server's permissions, watches for changes, and gives you the moderation tools to act on what it finds. Everything it writes can be undone.",
+    description: "Audit a server's permissions, watch for changes, and act on what you find. Undo is in History.",
     tags: ["Servers", "Privacy", "Utility"],
     authors: [{ name: "heart_menace", id: 281162701303185408n }],
     settings,
@@ -64,10 +65,12 @@ export default definePlugin({
     start() {
         startWatch(() => settings.store.liveWatch);
         startWatchers(() => settings.store.watchSpikes, () => settings.store.watchNewAccounts);
+        startTempBans();
     },
 
     stop() {
         stopWatch();
         stopWatchers();
+        stopTempBans();
     }
 });

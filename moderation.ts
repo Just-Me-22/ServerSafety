@@ -9,7 +9,8 @@ import { Guild, Permissions } from "@vencord/discord-types";
 import { GuildMemberStore, GuildRoleStore, PermissionsBits, RestAPI, UserStore } from "@webpack/common";
 
 import { record, Target } from "./History";
-import { guildChannels, has } from "./SafetyTab";
+import { guildChannels, has, plural } from "./SafetyTab";
+import { scheduleUnban } from "./tempBans";
 
 const quarantineKey = (guildId: string) => `serverInfo-quarantine-${guildId}`;
 
@@ -24,7 +25,6 @@ const SILENCE: Permissions[] = [
     "SPEAK"
 ];
 
-/** everything the current user's roles add up to in this guild */
 export function myPermissions(guild: Guild): bigint {
     const me = UserStore.getCurrentUser().id;
     if (guild.ownerId === me) return ~0n;
@@ -43,7 +43,6 @@ export function topRole(guild: Guild, userId: string): number {
     return Math.max(-1, ...(GuildMemberStore.getMember(guild.id, userId)?.roles ?? []).map(id => roles.get(id)?.position ?? -1));
 }
 
-/** you can only act on somebody standing below you, and never on the owner */
 export function canActOn(guild: Guild, userId: string) {
     const me = UserStore.getCurrentUser().id;
     if (userId === me || userId === guild.ownerId) return false;
@@ -81,11 +80,10 @@ export async function kick(guild: Guild, userId: string, reason: string) {
     // but its published type does not list the field
     await RestAPI.del({ url: `/guilds/${guild.id}/members/${userId}`, reason } as any);
 
-    // a kick cannot be taken back, so it is recorded with nothing to undo
     await log(guild, `Kicked ${name}`, []);
 }
 
-export async function ban(guild: Guild, userId: string, reason: string, deleteSeconds: number) {
+export async function ban(guild: Guild, userId: string, reason: string, deleteSeconds: number, days = 0) {
     const name = displayName(guild, userId);
     await RestAPI.put({
         url: `/guilds/${guild.id}/bans/${userId}`,
@@ -93,7 +91,18 @@ export async function ban(guild: Guild, userId: string, reason: string, deleteSe
         reason
     } as any);
 
-    await log(guild, `Banned ${name}`, [{ kind: "ban", userId, name }]);
+    // discord bans have no expiry, so a timed one is ours to lift later
+    if (days > 0) {
+        await scheduleUnban({
+            guildId: guild.id,
+            guildName: guild.name,
+            userId,
+            name,
+            until: Date.now() + days * 86_400_000
+        });
+    }
+
+    await log(guild, days > 0 ? `Banned ${name} for ${plural(days, "day")}` : `Banned ${name}`, [{ kind: "ban", userId, name }]);
 }
 
 export async function warn(guild: Guild, userId: string, text: string) {

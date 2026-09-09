@@ -415,13 +415,16 @@
 .vc-ss-punish-controls {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 8px;
-    flex: 0 0 auto;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
 }
 
 .vc-ss-punish-select {
-    width: 190px;
-    flex: 0 0 auto;
+    width: 150px;
+    flex: 0 1 auto;
+    min-width: 0;
 }
 
 .vc-ss-punish-go {

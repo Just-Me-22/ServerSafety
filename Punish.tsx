@@ -17,8 +17,17 @@ const cl = classNameFactory("vc-ss-");
 const MINUTES = [5, 10, 60, 24 * 60, 7 * 24 * 60, 28 * 24 * 60];
 const minuteLabel = (m: number) => m < 60 ? plural(m, "minute") : m < 1440 ? plural(m / 60, "hour") : plural(m / 1440, "day");
 
-/** this is how much of their posting to wipe, not how long the ban lasts. Discord
- *  bans have no duration at all, and 7 days is the most it will delete */
+/** how much of their posting to wipe, not how long the ban lasts. 7 days is the most
+ *  discord will delete */
+const BAN_LENGTH = [
+    { label: "Permanent", value: 0 },
+    { label: "1 day", value: 1 },
+    { label: "3 days", value: 3 },
+    { label: "7 days", value: 7 },
+    { label: "14 days", value: 14 },
+    { label: "30 days", value: 30 }
+];
+
 const PURGE = [
     { label: "Keep their posts", value: 0 },
     { label: "Wipe their last hour", value: 3600 },
@@ -28,7 +37,7 @@ const PURGE = [
 
 function Action({ title, detail, note, tone, children }: {
     title: string;
-    detail: string;
+    detail?: string;
     note?: string;
     tone?: string;
     children: React.ReactNode;
@@ -39,7 +48,7 @@ function Action({ title, detail, note, tone, children }: {
                 <div className={cl("safety-title")}>{title}</div>
                 <div className={cl("punish-controls")}>{children}</div>
             </div>
-            <div className={cl("safety-detail")}>{detail}</div>
+            {detail && <div className={cl("safety-detail")}>{detail}</div>}
             {note && <div className={cl("joins-flags")}>{note}</div>}
         </div>
     );
@@ -53,6 +62,7 @@ function Punish({ guild, userId, modalProps }: { guild: Guild; userId: string; m
     const [reason, setReason] = useState("");
     const [minutes, setMinutes] = useState(60);
     const [purge, setPurge] = useState(0);
+    const [banDays, setBanDays] = useState(0);
     const [busy, setBusy] = useState(false);
     const [roleId, setRoleId] = useState<string | null>();
     const [progress, setProgress] = useState<string>();
@@ -63,7 +73,6 @@ function Punish({ guild, userId, modalProps }: { guild: Guild; userId: string; m
         return () => { live = false; };
     }, [guild.id]);
 
-    // the id is remembered on disk, so check the role still exists before offering it
     const liveRoleId = roleId && GuildRoleStore.getRole(guild.id, roleId) ? roleId : roleId === undefined ? undefined : null;
     const held = isQuarantined(guild, userId, liveRoleId ?? null);
     const admins = adminRolesOf(guild, userId);
@@ -119,10 +128,9 @@ function Punish({ guild, userId, modalProps }: { guild: Guild; userId: string; m
                 <div className={cl("safety-summary")}>
                     <Text variant="text-md/semibold">
                         {allowed
-                            ? "Everything here is written to History and can be undone, except a kick."
+                            ? "Everything except a kick can be undone from History."
                             : `You cannot act on ${name}. They match or outrank you.`}
                     </Text>
-                    <Text variant="text-sm/normal">A reason goes into the server's audit log, where the rest of your staff can read it.</Text>
                     <div className={cl("punish-reason")}>
                         <TextInput
                             value={reason}
@@ -133,7 +141,7 @@ function Punish({ guild, userId, modalProps }: { guild: Guild; userId: string; m
                 </div>
 
                 <div className={cl("punish-grid")}>
-                    <Action title="Time out" detail="They can read but not talk. Expires on its own.">
+                    <Action title="Time out">
                         <div className={cl("punish-select")}>
                             <Select
                                 options={MINUTES.map(m => ({ label: minuteLabel(m), value: m }))}
@@ -152,7 +160,7 @@ function Punish({ guild, userId, modalProps }: { guild: Guild; userId: string; m
                         </Button>
                     </Action>
 
-                    <Action title="Warn" detail="Sends the reason above to them as a direct message.">
+                    <Action title="Warn" detail="Sends the reason above as a DM.">
                         <Button
                             size={Button.Sizes.SMALL}
                             className={cl("punish-go")}
@@ -167,10 +175,10 @@ function Punish({ guild, userId, modalProps }: { guild: Guild; userId: string; m
                         title="Quarantine"
                         tone="punish-warn"
                         detail={liveRoleId === undefined
-                            ? "Checking whether this server already has a quarantine role."
+                            ? "Checking for a quarantine role."
                             : liveRoleId
-                                ? "Adds a role that is denied everything in every channel. Does not expire."
-                                : "Needs a one time setup: one role, then a deny in every channel."}
+                                ? undefined
+                                : "Needs a one time setup: a role, then a deny in every channel."}
                         note={progress ?? (admins.length
                             ? `${list(admins.map(role => role!.name))} grants Administrator, which ignores channel overrides, so quarantine will not hold them.`
                             : undefined)}
@@ -203,7 +211,6 @@ function Punish({ guild, userId, modalProps }: { guild: Guild; userId: string; m
                     <Action
                         title="Kick"
                         tone="punish-danger"
-                        detail="They can come back with a new invite. This is the one thing here that cannot be undone."
                     >
                         <Button
                             size={Button.Sizes.SMALL}
@@ -217,10 +224,18 @@ function Punish({ guild, userId, modalProps }: { guild: Guild; userId: string; m
                     </Action>
 
                     <Action
-                        title="Ban, permanently"
+                        title="Ban"
                         tone="punish-danger"
-                        detail="A Discord ban has no end date. It stands until somebody lifts it, and Undo in History is one way to do that. The dropdown is how much of their recent posting to wipe on the way out, not how long the ban lasts, and a week is the most Discord will delete."
+                        detail="A timed ban is lifted by this plugin, so it needs your Discord running when it comes due."
                     >
+                        <div className={cl("punish-select")}>
+                            <Select
+                                options={BAN_LENGTH}
+                                select={setBanDays}
+                                isSelected={value => value === banDays}
+                                serialize={String}
+                            />
+                        </div>
                         <div className={cl("punish-select")}>
                             <Select
                                 options={PURGE}
@@ -234,7 +249,12 @@ function Punish({ guild, userId, modalProps }: { guild: Guild; userId: string; m
                             className={cl("punish-go")}
                             color={Button.Colors.RED}
                             disabled={busy || !allowed || !has(mine, "BAN_MEMBERS")}
-                            onClick={() => confirm("Ban them for good?", `${name} will be banned with no end date, and this will ${PURGE.find(p => p.value === purge)?.label.toLowerCase()}.`, "Ban", () => ban(guild, userId, reason, purge))}
+                            onClick={() => confirm(
+                                banDays ? "Ban them?" : "Ban them for good?",
+                                `${name} will be banned ${banDays ? `for ${plural(banDays, "day")}` : "with no end date"}, and this will ${PURGE.find(p => p.value === purge)?.label.toLowerCase()}.`,
+                                "Ban",
+                                () => ban(guild, userId, reason, purge, banDays)
+                            )}
                         >
                             Ban
                         </Button>
@@ -249,8 +269,6 @@ export function openPunishModal(guild: Guild, userId: string) {
     openModal(props => <Punish guild={guild} userId={userId} modalProps={props} />);
 }
 
-/** true when this account can do anything at all to somebody here, used to decide
- *  whether the button is worth showing */
 export const canModerate = (guild: Guild) => {
     const mine = myPermissions(guild);
     return has(mine, "BAN_MEMBERS") || has(mine, "KICK_MEMBERS") || has(mine, "MODERATE_MEMBERS") || has(mine, "MANAGE_ROLES");
