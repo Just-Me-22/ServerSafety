@@ -32,7 +32,6 @@ function AllServers({ modalProps }: { modalProps: RenderModalProps; }) {
     useEffect(() => {
         let live = true;
 
-        // walking every server's channels takes a beat, so let the modal paint first
         const timer = setTimeout(async () => {
             const guilds = Object.values(GuildStore.getGuilds());
             const stored = await DataStore.getMany<SafetyState>(guilds.map(guild => stateKey(guild.id)));

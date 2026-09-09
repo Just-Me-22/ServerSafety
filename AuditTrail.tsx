@@ -12,7 +12,6 @@ import { list, permNames, prettyPerm } from "./SafetyTab";
 
 const cl = classNameFactory("vc-ss-");
 
-// verified against Discord's own table rather than remembered
 const enum Action {
     GuildUpdate = 1,
     OverwriteCreate = 13,

@@ -25,8 +25,6 @@ interface Incidents {
     dms_disabled_until: string | null;
 }
 
-/** every target carries both sides: `before` is what undo writes back, `after` is
- *  what we left behind and therefore what the drift check compares against */
 export type Target =
     | { kind: "role"; roleId: string; name: string; before: string; after: string; }
     | { kind: "memberRoles"; userId: string; name: string; before: string[]; after: string[]; }
@@ -52,8 +50,6 @@ export async function readHistory(): Promise<Entry[]> {
     return await DataStore.get<Entry[]>(KEY) ?? [];
 }
 
-/** returns the new entry's id, so a caller that has to remember which entry it made
- *  does not have to go back and guess at the top of the log */
 export async function record(entry: Omit<Entry, "id" | "at">) {
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const log = await readHistory();
@@ -85,8 +81,6 @@ function currentOverwrite(channelId: string, guildId: string): Overwrite | null 
     return overwrite ? { allow: String(overwrite.allow), deny: String(overwrite.deny) } : null;
 }
 
-/** names the targets somebody has changed since we wrote them, read from the stores
- *  rather than the network so opening the list costs nothing */
 export function drifted(entry: Entry): string[] {
     const guild = GuildStore.getGuild(entry.guildId);
     if (!guild) return ["the server itself, which you are no longer in"];
@@ -125,7 +119,6 @@ export function drifted(entry: Entry): string[] {
             }
             case "message":
             case "ban":
-                // both are either still in place or already gone, and undo copes with gone
                 break;
             case "timeout": {
                 const now = (GuildMemberStore.getMember(entry.guildId, target.userId) as any)?.communicationDisabledUntil ?? null;
@@ -185,7 +178,6 @@ export async function undo(entry: Entry) {
                 try {
                     await RestAPI.del({ url: `/channels/${target.channelId}/messages/${target.messageId}` });
                 } catch {
-                    // somebody deleted it first, which is the outcome we wanted anyway
                 }
                 break;
 
@@ -193,7 +185,6 @@ export async function undo(entry: Entry) {
                 try {
                     await RestAPI.del({ url: `/guilds/${entry.guildId}/bans/${target.userId}` });
                 } catch {
-                    // already unbanned by hand
                 }
                 break;
 

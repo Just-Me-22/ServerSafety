@@ -33,8 +33,6 @@ export async function deleteTemplate(id: string) {
     return templates;
 }
 
-/** the preview and the sent message run through the same function, so what you see
- *  is what goes out */
 export function fill(body: string, values: Record<string, string>) {
     return body.replace(/\{(\w+)\}/g, (whole, key) => values[key] ?? whole);
 }

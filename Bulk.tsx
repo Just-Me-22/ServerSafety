@@ -100,8 +100,6 @@ function Bulk({ guild, modalProps }: { guild: Guild; modalProps: RenderModalProp
                 });
             }
         } finally {
-            // whatever landed before a failure is still a change somebody has to be
-            // able to take back, so it goes in the log either way
             if (targets.length) {
                 await record({
                     guildId: guild.id,

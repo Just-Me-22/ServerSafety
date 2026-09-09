@@ -45,7 +45,6 @@ export function PersonCard({ guild, userId, extra, fallbackName, children }: {
     guild: Guild;
     userId: string;
     extra?: string;
-    /** whatever the calling list already knew, so a refused profile still has a name */
     fallbackName?: string;
     children?: React.ReactNode;
 }) {

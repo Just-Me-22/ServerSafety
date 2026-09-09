@@ -87,7 +87,6 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
     const filledTitle = fill(title, values);
     const filledBody = fill(body, values);
 
-    // as me there is no embed to put a title in, so it becomes a markdown heading
     const asText = [
         mentions,
         filledTitle && `## ${filledTitle}`,
@@ -270,7 +269,7 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
                 <FormSwitch
                     hideBorder
                     title="Send it as a real embed"
-                    description="Goes through a webhook, so it gets a title bar and a colour but posts under the webhook's name rather than yours"
+                    description="Posts under the webhook's name, not yours"
                     value={asWebhook}
                     disabled={busy}
                     onChange={setAsWebhook}
@@ -307,7 +306,7 @@ function Broadcast({ guild, initial, modalProps }: { guild: Guild; initial?: str
                 <FormSwitch
                     hideBorder
                     title="Send automatic safety alerts here"
-                    description="When a server picks up a new critical problem while you are online, post it here as well as telling you"
+                    description="Post new critical problems here too"
                     value={alertsHere}
                     disabled={busy}
                     onChange={on => { setAlertsHere(on); void setAlertChannel(guild.id, on ? channelId : null); }}

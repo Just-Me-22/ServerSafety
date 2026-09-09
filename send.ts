@@ -18,8 +18,6 @@ export const alertChannel = async (guildId: string) =>
 export const setAlertChannel = (guildId: string, channelId: string | null) =>
     channelId ? DataStore.set(alertKey(guildId), { channelId }) : DataStore.del(alertKey(guildId));
 
-/** posts and writes it to History, so anything this plugin says can be taken back.
- *  nothing in the text can ping: only what a caller explicitly allows ever does. */
 export async function postTo(guild: Guild, channelId: string, content: string, what: string) {
     const { body: message } = await RestAPI.post({
         url: `/channels/${channelId}/messages`,

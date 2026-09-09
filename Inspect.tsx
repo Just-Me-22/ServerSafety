@@ -229,7 +229,6 @@ function Visibility({ guild }: { guild: Guild; }) {
     const roles = GuildRoleStore.getSortedRoles(guild.id);
     const everyone = roles.find(role => role.id === guild.id);
 
-    // what somebody holding only this role ends up with here
     const forRole = (role: Role) => {
         if (!channel || !everyone) return 0n;
         if (has(role.permissions, "ADMINISTRATOR")) return ~0n;
@@ -272,8 +271,6 @@ function Visibility({ guild }: { guild: Guild; }) {
     );
 }
 
-/** the gate settings as a checklist, because six separate complaints do not tell
- *  you at a glance how much armour the server actually has on */
 function Readiness({ guild }: { guild: Guild; }) {
     const rules = useFetch<{ enabled?: boolean; trigger_type?: number; }[]>(`/guilds/${guild.id}/auto-moderation/rules`);
     const everyone = GuildRoleStore.getSortedRoles(guild.id).find(role => role.id === guild.id);

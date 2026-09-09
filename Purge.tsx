@@ -7,7 +7,7 @@
 import { FormSwitch } from "@components/FormSwitch";
 import { classNameFactory } from "@utils/css";
 import { Guild, RenderModalProps } from "@vencord/discord-types";
-import { Alerts, Button, Forms, Modal, openModal, PermissionsBits, PermissionStore, RestAPI, ScrollerThin, Select, Text, TextInput, Toasts, useState } from "@webpack/common";
+import { Alerts, Button, Forms, Modal, openModal, PermissionsBits, PermissionStore, RestAPI, ScrollerThin, Select, Text, TextInput, Toasts, useRef, useState } from "@webpack/common";
 
 import { sendableChannels } from "./Broadcast";
 import { record } from "./History";
@@ -16,11 +16,7 @@ import { settings } from "./settings";
 
 const cl = classNameFactory("vc-ss-");
 
-/** Discord has no bulk delete for a user account, so this is one request per message.
- *  A bot like Wick does a thousand in ten requests; this cannot, which is why the
- *  ceiling is a setting rather than a number picked here. */
 const scanDepth = (cap: number) => Math.max(600, cap * 6);
-/** deletion allows roughly five per five seconds, and this leaves room under that */
 const GAP = 1100;
 
 interface Msg {
@@ -51,7 +47,9 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
     const [found, setFound] = useState<Msg[]>();
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState<string>();
-    const [stop, setStop] = useState(false);
+    // a ref rather than state: the loop below captures its variables when it starts, so
+    // a state update from the stop button would never be visible to a run in progress
+    const stop = useRef(false);
 
     const channel = channels.find(c => c.id === channelId);
     const allowed = channel != null && PermissionStore.can(PermissionsBits.MANAGE_MESSAGES, channel);
@@ -110,19 +108,17 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
     async function purge() {
         if (!found?.length) return;
         setBusy(true);
-        setStop(false);
+        stop.current = false;
 
         let done = 0;
         try {
             for (const m of found) {
-                if (stop) break;
+                if (stop.current) break;
 
                 await RestAPI.del({ url: `/channels/${channelId}/messages/${m.id}` });
                 done++;
                 setProgress(`deleted ${done} of ${found.length}`);
 
-                // paced on purpose: fast enough to be useful, slow enough to stay
-                // under the limit and not look like a script hammering the endpoint
                 if (done < found.length) await new Promise(r => setTimeout(r, GAP));
             }
         } catch (error) {
@@ -133,8 +129,6 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
             });
         } finally {
             if (done) {
-                // nothing brings a message back, so this is a record of what happened
-                // rather than something History can undo
                 await record({
                     guildId: guild.id,
                     guildName: guild.name,
@@ -191,7 +185,6 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
                 <FormSwitch
                     hideBorder
                     title="Include pinned messages"
-                    description="Off by default, because a pin is usually the one thing in a channel somebody meant to keep"
                     value={includePinned}
                     disabled={busy}
                     onChange={setIncludePinned}
@@ -227,7 +220,7 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
 
                     <div className={cl("safety-actions-right")}>
                         {busy && progress?.startsWith("deleted") && (
-                            <Button size={Button.Sizes.SMALL} look={Button.Looks.LINK} onClick={() => setStop(true)}>
+                            <Button size={Button.Sizes.SMALL} look={Button.Looks.LINK} onClick={() => { stop.current = true; }}>
                                 Stop
                             </Button>
                         )}

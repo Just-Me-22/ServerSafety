@@ -17,7 +17,6 @@ import { postTo } from "./send";
 
 const cl = classNameFactory("vc-ss-");
 
-/** member of this server for ten minutes, which is what stops a fresh raid account */
 const RAISED_VERIFICATION = 3;
 const SCAN_EVERYONE = 2;
 
@@ -26,7 +25,6 @@ const HOURS = [1, 3, 6, 12, 24];
 interface ChannelState {
     id: string;
     name: string;
-    /** null when the channel had no @everyone override at all, which restore must recreate as absent */
     allow: string | null;
     deny: string | null;
 }
@@ -105,11 +103,8 @@ function Emergency({ guild, modalProps }: { guild: Guild; modalProps: RenderModa
                     : []
             };
 
-            // written before anything changes, so a failure halfway still leaves a way back
             await DataStore.set(panicKey(guild.id), snapshot);
 
-            // each target is pushed only once its write has landed, so a lockdown
-            // that fails on channel nine still leaves an undo for the first eight
             if (raiseGate || scanMedia) {
                 await RestAPI.patch({
                     url: `/guilds/${guild.id}`,
@@ -197,8 +192,6 @@ function Emergency({ guild, modalProps }: { guild: Guild; modalProps: RenderModa
                 message: `Discord refused that: ${String((error as any)?.body?.message ?? error)}`
             });
         } finally {
-            // the try records on the happy path; this only covers a failure part way
-            // through, where what already landed still needs an undo
             if (!logged && targets.length) {
                 await record({ guildId: guild.id, guildName: guild.name, what: plan.join(" "), targets });
             }
@@ -228,7 +221,6 @@ function Emergency({ guild, modalProps }: { guild: Guild; modalProps: RenderModa
 
             for (const channel of saved.channels) {
                 if (channel.allow == null) {
-                    // there was no override here before, so putting one back would be a change of its own
                     await RestAPI.del({ url: `/channels/${channel.id}/permissions/${guild.id}` });
                 } else {
                     await RestAPI.put({
@@ -329,7 +321,6 @@ function Emergency({ guild, modalProps }: { guild: Guild; modalProps: RenderModa
                     <FormSwitch
                         hideBorder
                         title={`Lock ${plural(lockable.length, "channel")}`}
-                        description="Takes Send Messages away from @everyone everywhere they can currently post"
                         value={lock}
                         disabled={busy || !lockable.length}
                         onChange={setLock}

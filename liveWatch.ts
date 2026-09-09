@@ -13,7 +13,6 @@ import { alertChannel, postTo } from "./send";
 
 /** a permission edit arrives as a burst of events, so wait for the burst to end */
 const SETTLE = 1500;
-/** long enough for the guild and channel stores to fill after a cold start */
 const SEED_AFTER = 8000;
 
 const seen = new Map<string, Set<string>>();
@@ -30,7 +29,6 @@ function check(guildId: string) {
     const before = seen.get(guildId);
     seen.set(guildId, now);
 
-    // nothing to compare against yet, so this pass only records the starting point
     if (!before) return;
 
     const appeared = [...now].filter(title => !before.has(title));
@@ -88,7 +86,6 @@ export function startWatch(isEnabled: () => boolean) {
         FluxDispatcher.subscribe(event as any, handler as any);
     }
 
-    // without this the first change after startup would only be recorded, not reported
     seedTimer = window.setTimeout(() => {
         for (const guild of Object.values(GuildStore.getGuilds())) {
             if (!seen.has(guild.id)) seen.set(guild.id, new Set(criticalTitles(guild)));

@@ -110,11 +110,8 @@ function MemberPower({ guild, userId, modalProps }: { guild: Guild; userId: stri
     let untouched = everyoneRole?.permissions ?? 0n;
     for (const role of held) untouched |= role.permissions;
 
-    // listed from what they started with as well as what the edits leave, so a row
-    // does not vanish the moment you switch it off and strand you
     const powers = POWERS.filter(power => has(base, power.perm) || has(untouched, power.perm));
 
-    // @everyone is not in member.roles but is very often where the power comes from
     const sources = [everyoneRole, ...held]
         .filter((role): role is Role => role != null)
         .filter(role => POWERS.some(power => has(role.permissions, power.perm) || has(permsOf(role), power.perm)));
@@ -153,8 +150,6 @@ function MemberPower({ guild, userId, modalProps }: { guild: Guild; userId: stri
         setBusy(true);
         const kept = (member?.roles ?? []).filter(id => !dropped.includes(id));
 
-        // filled as each write lands rather than all at the end, so a failure part
-        // way through still leaves an undo for whatever already went through
         const targets: Target[] = [];
 
         try {

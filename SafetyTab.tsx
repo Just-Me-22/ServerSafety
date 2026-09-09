@@ -16,6 +16,7 @@ import { openAllServersModal } from "./AllServers";
 import { AuditTrail } from "./AuditTrail";
 import { openBroadcastModal } from "./Broadcast";
 import { openBulkModal } from "./Bulk";
+import { openChannelsModal } from "./Channels";
 import { openEmergencyModal } from "./Emergency";
 import { openHistoryModal } from "./HistoryModal";
 import { openInspectModal } from "./Inspect";
@@ -32,7 +33,6 @@ const enum Level {
     Warning
 }
 
-/** where the setting behind a finding actually lives */
 type Fix =
     | { kind: "roles"; roleId?: string; }
     | { kind: "channel"; id: string; name: string; }
@@ -41,11 +41,10 @@ type Fix =
 interface Finding {
     level: Level;
     title: string;
-    detail: string;
+    detail?: string;
     fix?: Fix;
 }
 
-// selecting a role only makes sense when the finding is about exactly one
 const roleFix = (matched: Role[]): Fix => ({ kind: "roles", roleId: matched.length === 1 ? matched[0].id : undefined });
 const channelFix = (channel: { id: string; name: string; }): Fix => ({ kind: "channel", id: channel.id, name: channel.name });
 
@@ -70,97 +69,82 @@ const VERIFICATION_LEVELS = ["None", "Low", "Medium", "High", "Highest"];
 
 // PermissionsBits is a lazy webpack find, so these stay as names and are resolved
 // inside the audit rather than when this module is evaluated
-const EVERYONE_RULES: { perm: Permissions; level: Level; title: string; detail: string; }[] = [
+const EVERYONE_RULES: { perm: Permissions; level: Level; title: string; }[] = [
     {
         perm: "ADMINISTRATOR",
         level: Level.Critical,
-        title: "@everyone has Administrator",
-        detail: "Administrator ignores every channel override, so nothing else you set here matters. Turn it off first."
+        title: "@everyone has Administrator"
     },
     {
         perm: "MANAGE_GUILD",
         level: Level.Critical,
-        title: "@everyone has Manage Server",
-        detail: "Anyone can rename the server, change its settings and add integrations."
+        title: "@everyone has Manage Server"
     },
     {
         perm: "MANAGE_ROLES",
         level: Level.Critical,
-        title: "@everyone has Manage Roles",
-        detail: "Anyone can hand themselves and their friends any role below @everyone's own position."
+        title: "@everyone has Manage Roles"
     },
     {
         perm: "MANAGE_CHANNELS",
         level: Level.Critical,
-        title: "@everyone has Manage Channels",
-        detail: "Anyone can rename, reorder or delete channels."
+        title: "@everyone has Manage Channels"
     },
     {
         perm: "MANAGE_WEBHOOKS",
         level: Level.Critical,
-        title: "@everyone has Manage Webhooks",
-        detail: "A webhook posts under any name and avatar and keeps working after the person is banned. This is the usual raid route."
+        title: "@everyone has Manage Webhooks"
     },
     {
         perm: "BAN_MEMBERS",
         level: Level.Critical,
-        title: "@everyone can ban members",
-        detail: "One person can empty the server."
+        title: "@everyone can ban members"
     },
     {
         perm: "KICK_MEMBERS",
         level: Level.Critical,
-        title: "@everyone can kick members",
-        detail: "Same as banning, just reversible."
+        title: "@everyone can kick members"
     },
     {
         perm: "MODERATE_MEMBERS",
         level: Level.Critical,
-        title: "@everyone can time members out",
-        detail: "Anyone can silence anyone, including staff."
+        title: "@everyone can time members out"
     },
     {
         perm: "MANAGE_MESSAGES",
         level: Level.Warning,
-        title: "@everyone has Manage Messages",
-        detail: "Anyone can delete anyone's messages, so a troll can remove the evidence on the way out."
+        title: "@everyone has Manage Messages"
     },
     {
         perm: "MENTION_EVERYONE",
         level: Level.Warning,
-        title: "@everyone can ping @everyone",
-        detail: "The most used troll button there is. Leave it to the roles that need it."
+        title: "@everyone can ping @everyone"
     },
     {
         perm: "MANAGE_GUILD_EXPRESSIONS",
         level: Level.Warning,
-        title: "@everyone can manage emoji and stickers",
-        detail: "Anyone can delete or replace the server's emoji."
+        title: "@everyone can manage emoji and stickers"
     },
     {
         perm: "MOVE_MEMBERS",
         level: Level.Warning,
-        title: "@everyone can move members between voice channels",
-        detail: "Anyone can drag people out of a call."
+        title: "@everyone can move members between voice channels"
     }
 ];
 
-// granted to @everyone by a channel override rather than by the role, which is
-// where the misconfigurations nobody remembers making tend to sit
-const CHANNEL_RULES: { perm: Permissions; level: Level; verb: string; detail: string; }[] = [
-    { perm: "MANAGE_CHANNELS", level: Level.Critical, verb: "rename or delete the channel", detail: "" },
-    { perm: "MANAGE_ROLES", level: Level.Critical, verb: "change who can see the channel", detail: "" },
-    { perm: "MANAGE_WEBHOOKS", level: Level.Critical, verb: "create webhooks", detail: "A webhook keeps posting after the person is banned." },
-    { perm: "MANAGE_MESSAGES", level: Level.Warning, verb: "delete anyone's messages", detail: "" },
-    { perm: "MENTION_EVERYONE", level: Level.Warning, verb: "ping @everyone", detail: "" },
-    { perm: "MANAGE_THREADS", level: Level.Warning, verb: "delete and lock threads", detail: "" },
-    { perm: "MUTE_MEMBERS", level: Level.Warning, verb: "mute people in voice", detail: "" },
-    { perm: "DEAFEN_MEMBERS", level: Level.Warning, verb: "deafen people in voice", detail: "" },
-    { perm: "MOVE_MEMBERS", level: Level.Warning, verb: "drag people out of voice", detail: "" },
-    { perm: "SEND_TTS_MESSAGES", level: Level.Warning, verb: "send text to speech messages", detail: "" }
+const CHANNEL_RULES: { perm: Permissions; level: Level; verb: string; }[] = [
+    { perm: "MANAGE_CHANNELS", level: Level.Critical, verb: "rename or delete the channel" },
+    { perm: "MANAGE_ROLES", level: Level.Critical, verb: "change who can see the channel" },
+    { perm: "MANAGE_WEBHOOKS", level: Level.Critical, verb: "create webhooks" },
+    { perm: "MANAGE_MESSAGES", level: Level.Warning, verb: "delete anyone's messages" },
+    { perm: "MENTION_EVERYONE", level: Level.Warning, verb: "ping @everyone" },
+    { perm: "MANAGE_THREADS", level: Level.Warning, verb: "delete and lock threads" },
+    { perm: "MUTE_MEMBERS", level: Level.Warning, verb: "mute people in voice" },
+    { perm: "DEAFEN_MEMBERS", level: Level.Warning, verb: "deafen people in voice" },
+    { perm: "MOVE_MEMBERS", level: Level.Warning, verb: "drag people out of voice" },
+    { perm: "SEND_TTS_MESSAGES", level: Level.Warning, verb: "send text to speech messages" }
 ];
 
-// labels for the desync check below; the channel rules already name most of them
 const CHANNEL_LABELS = new Map<Permissions, string>([
     ["VIEW_CHANNEL", "see the channel"],
     ["SEND_MESSAGES", "post in it"],
@@ -184,7 +168,6 @@ export function has(permissions: bigint, perm: Permissions) {
     return typeof bit === "bigint" && (permissions & bit) === bit;
 }
 
-/** every permission name held in a bitfield, so a role reads as words not a number */
 export function permNames(bits: bigint): string[] {
     if (!bits) return [];
 
@@ -193,7 +176,6 @@ export function permNames(bits: bigint): string[] {
         .map(([name]) => name);
 }
 
-/** MANAGE_WEBHOOKS reads as Manage Webhooks, which is what the Discord UI calls it */
 export const prettyPerm = (perm: string) =>
     perm.toLowerCase().split("_").map(word => word[0].toUpperCase() + word.slice(1)).join(" ");
 
@@ -201,7 +183,6 @@ export const list = (names: string[]) => names.length > 6
     ? `${names.slice(0, 6).join(", ")} and ${names.length - 6} more`
     : names.join(", ");
 
-// English does not always just add an s, and "50 persons" reads like a police report
 const IRREGULAR: Record<string, string> = {
     person: "people",
     is: "are",
@@ -214,7 +195,6 @@ const IRREGULAR: Record<string, string> = {
 export const plural = (count: number, word: string) =>
     `${count} ${count === 1 ? word : IRREGULAR[word] ?? `${word}s`}`;
 
-/** what @everyone ends up with in a channel once its own override is applied */
 export function everyoneIn(channel: Channel, guildId: string, base: bigint) {
     const overwrite = channel.permissionOverwrites?.[guildId];
     if (!overwrite) return base;
@@ -238,7 +218,7 @@ export function auditGuild(guild: Guild): Report {
     if (everyone) {
         for (const rule of EVERYONE_RULES) {
             if (hasRole(everyone, rule.perm)) {
-                findings.push({ level: rule.level, title: rule.title, detail: rule.detail, fix: { kind: "roles", roleId: guild.id } });
+                findings.push({ level: rule.level, title: rule.title, fix: { kind: "roles", roleId: guild.id } });
             }
         }
     }
@@ -248,7 +228,7 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Critical,
             title: `${plural(admins.length, "role")} grant Administrator`,
-            detail: `${list(admins.map(r => r.name))}. Administrator ignores every channel override, so one compromised account in any of these owns the server. Give staff the specific permissions instead.`,
+            detail: list(admins.map(r => r.name)),
             fix: roleFix(admins)
         });
     }
@@ -258,7 +238,7 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Warning,
             title: `${plural(mentionable.length, "staff role")} can be pinged by anyone`,
-            detail: `${list(mentionable.map(r => r.name))}. Anyone can summon staff on demand. Turn off "Allow anyone to @mention this role".`,
+            detail: list(mentionable.map(r => r.name)),
             fix: roleFix(mentionable)
         });
     }
@@ -268,7 +248,7 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Warning,
             title: `${plural(webhooks.length, "role")} can manage webhooks`,
-            detail: `${list(webhooks.map(r => r.name))}. A webhook posts under any name and keeps working after the person is banned, so this is worth keeping to the smallest group possible.`,
+            detail: list(webhooks.map(r => r.name)),
             fix: roleFix(webhooks)
         });
     }
@@ -280,14 +260,13 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Critical,
             title: `${plural(botAdmins.length, "bot")} run with Administrator`,
-            detail: `${list(botAdmins.map(r => r.name))}. Setup guides ask for Administrator because it saves them listing what the bot actually needs, and a leaked bot token then owns the server. Give each bot only the permissions it uses.`,
+            detail: list(botAdmins.map(r => r.name)),
             fix: roleFix(botAdmins)
         });
     }
 
     const staff = named.filter(role => ELEVATED.some(perm => hasRole(role, perm)));
     if (staff.length) {
-        // a role can only be edited or removed by someone holding a higher one
         const ceiling = Math.max(...staff.map(role => role.position));
         const looseBots = bots.filter(role =>
             !hasRole(role, "ADMINISTRATOR")
@@ -298,14 +277,12 @@ export function auditGuild(guild: Guild): Report {
             findings.push({
                 level: Level.Warning,
                 title: `${plural(looseBots.length, "bot")} sit above your staff`,
-                detail: `${list(looseBots.map(r => r.name))}. If one of these goes wrong your moderators cannot strip it, because it outranks them. Drag them below the staff roles.`,
+                detail: list(looseBots.map(r => r.name)),
                 fix: roleFix(looseBots)
             });
         }
     }
 
-    // Manage Roles hands out every role below your own, so a role holding it is
-    // worth as much as the highest role underneath it
     const ladders = named
         .filter(role => !hasRole(role, "ADMINISTRATOR") && hasRole(role, "MANAGE_ROLES"))
         .map(role => ({
@@ -319,7 +296,7 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Critical,
             title: `${plural(ladders.length, "role")} can promote themselves`,
-            detail: `${ladders.map(rung => `${rung.role.name} can grant ${list(rung.reachable.map(r => r.name))}`).join("; ")}. That is a ladder to those permissions, not just a way to hand out colours.`,
+            detail: ladders.map(rung => `${rung.role.name} can grant ${list(rung.reachable.map(r => r.name))}`).join("; "),
             fix: roleFix(ladders.map(rung => rung.role))
         });
     }
@@ -346,8 +323,6 @@ export function auditGuild(guild: Guild): Report {
             };
 
             for (const rule of CHANNEL_RULES) {
-                // a permission the role already grants is reported above; this is
-                // only about channels that hand it out on their own
                 if (hasRole(everyone, rule.perm)) continue;
 
                 const where = visible.filter(c => has(c.permissions, rule.perm));
@@ -356,7 +331,7 @@ export function auditGuild(guild: Guild): Report {
                 findings.push({
                     level: rule.level,
                     title: `Anyone can ${rule.verb} in ${plural(where.length, "channel")}`,
-                    detail: `${list(where.map(c => `#${c.name}`))}. The role does not grant this, a channel override does. ${rule.detail}`.trim(),
+                    detail: list(where.map(c => `#${c.name}`)),
                     fix: channelFix(where[0])
                 });
             }
@@ -382,32 +357,28 @@ export function auditGuild(guild: Guild): Report {
                     title: desynced.length === 1
                         ? `#${desynced[0].name} is more open than its category`
                         : `${desynced.length} channels are more open than their category`,
-                    detail: `${list(desynced.map(c => `#${c.name} lets anyone ${c.gained.join(" and ")}`))}. Fixing a category does not reach the channels under it, so this is usually a fix that was only half applied.`,
+                    detail: list(desynced.map(c => `#${c.name} lets anyone ${c.gained.join(" and ")}`)),
                     fix: channelFix(desynced[0])
                 });
             }
 
             const postable = visible.filter(c => has(c.permissions, "SEND_MESSAGES"));
 
-            // each half of this is ordinary on its own. together it is the button
-            // a raid actually presses
             const amplifier = postable.filter(c => has(c.permissions, "MENTION_EVERYONE") && !c.slowmode);
             if (amplifier.length) {
                 findings.push({
                     level: Level.Warning,
                     title: `${plural(amplifier.length, "channel")} let anyone ping everyone with no slowmode`,
-                    detail: `${list(amplifier.map(c => `#${c.name}`))}. One account can ping the whole server as fast as it can type. Even five seconds of slowmode takes the speed out of it.`,
+                    detail: list(amplifier.map(c => `#${c.name}`)),
                     fix: channelFix(amplifier[0])
                 });
             }
 
-            // most channels having no slowmode is normal. none of them having any
-            // means nobody has thought about it, which is the thing worth saying
             if (postable.length && postable.every(c => !c.slowmode)) {
                 findings.push({
                     level: Level.Warning,
                     title: "No channel has slowmode",
-                    detail: `Anyone can post as fast as they like in all ${plural(postable.length, "channel")} they can reach. Slowmode is the cheapest spam brake there is and it costs regular members nothing.`,
+                    detail: `No slowmode in any of ${plural(postable.length, "channel")}.`,
                     fix: channelFix(postable[0])
                 });
             }
@@ -417,7 +388,7 @@ export function auditGuild(guild: Guild): Report {
                 findings.push({
                     level: Level.Warning,
                     title: `Everyone can see ${plural(openNsfw.length, "age restricted channel")}`,
-                    detail: `${list(openNsfw.map(c => `#${c.name}`))}. Age restricted asks for a birthday, it does not gate on a role. If these are not meant to be public, deny View Channel for @everyone.`,
+                    detail: list(openNsfw.map(c => `#${c.name}`)),
                     fix: channelFix(openNsfw[0])
                 });
             }
@@ -428,7 +399,6 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Warning,
             title: `Verification level is ${VERIFICATION_LEVELS[guild.verificationLevel]}`,
-            detail: "An account made a minute ago can post straight away. Medium makes it wait five minutes, High requires a verified phone number.",
             fix: MODERATION
         });
     }
@@ -437,7 +407,6 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Warning,
             title: "Two-factor is not required for moderation",
-            detail: "One phished staff account is enough to wreck the server. Require 2FA for moderator actions.",
             fix: MODERATION
         });
     }
@@ -457,7 +426,6 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Critical,
             title: "Raid alerts are turned off",
-            detail: "Discord watches for join floods and suspicious sign up patterns for free, and this server has it switched off.",
             fix: safetyFix("SAFETY_CAPTCHA_AND_RAID_PROTECTION")
         });
     }
@@ -466,7 +434,6 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Warning,
             title: "Anyone can create invites",
-            detail: "Every member can mint a permanent link, and once one leaks you cannot revoke it without knowing which link it was. Keep Create Invite to the roles you trust.",
             fix: { kind: "roles", roleId: guild.id }
         });
     }
@@ -475,7 +442,6 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Warning,
             title: "New members are not asked to agree to the rules",
-            detail: "Membership screening makes a join click through your rules before they can talk, which stops most drive by trolls on its own.",
             fix: { kind: "settings", section: "MEMBER_VERIFICATION", label: "Open Membership Screening" }
         });
     }
@@ -484,7 +450,6 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Warning,
             title: "No safety alerts channel is set",
-            detail: "This is where Discord posts raid warnings and its own moderation notices. Without one you find out from your members instead.",
             fix: safetyFix("SAFETY_OVERVIEW")
         });
     }
@@ -499,7 +464,6 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Critical,
             title: "The front door is wide open",
-            detail: "Anyone can make an invite, nothing checks who walks in, and they can talk the second they arrive. Each of those is reported on its own above, but together there is no step at all between a raider deciding to come and being in your channels. Fixing any one of the three breaks the chain.",
             fix: MODERATION
         });
     }
@@ -508,7 +472,7 @@ export function auditGuild(guild: Guild): Report {
         findings.push({
             level: Level.Warning,
             title: "Webhook power with no two-factor behind it",
-            detail: `${list(webhooks.map(r => r.name))} can create webhooks, and moderation does not require 2FA. A phished password is enough to plant a webhook that keeps posting after the account is banned.`,
+            detail: `${list(webhooks.map(r => r.name))} can create webhooks, and moderation does not require 2FA.`,
             fix: MODERATION
         });
     }
@@ -550,7 +514,7 @@ export async function auditOnboarding(guild: Guild): Promise<Finding[]> {
         findings.push({
             level: Level.Critical,
             title: "Onboarding hands out a role with real power",
-            detail: `${list(names)}. Anyone can take these by clicking a button in the welcome flow, with nobody approving it. Onboarding is for interests and pronouns, not permissions.`,
+            detail: list(names),
             fix: { kind: "settings", section: "ONBOARDING", label: "Open Onboarding" }
         });
     }
@@ -564,7 +528,7 @@ export async function auditOnboarding(guild: Guild): Promise<Finding[]> {
         findings.push({
             level: Level.Warning,
             title: `New members land straight in ${plural(restricted.length, "age restricted channel")}`,
-            detail: `${list(restricted.map(c => `#${c.name}`))}. Onboarding drops every new join into its default channels, so this is the first thing they see.`,
+            detail: list(restricted.map(c => `#${c.name}`)),
             fix: channelFix(restricted[0])
         });
     }
@@ -577,8 +541,6 @@ interface AutomodRule {
     trigger_type?: number;
 }
 
-/** Discord's own spam filters are free and off by default, so their absence is
- *  worth as much as any permission mistake */
 export async function auditAutomod(guild: Guild): Promise<Finding[]> {
     let rules: AutomodRule[];
     try {
@@ -598,7 +560,6 @@ export async function auditAutomod(guild: Guild): Promise<Finding[]> {
         findings.push({
             level: Level.Critical,
             title: "AutoMod is not doing anything",
-            detail: "No rule is switched on. Discord will block spam and mention floods for free, before a moderator has to be awake, and this server is not using any of it.",
             fix
         });
         return findings;
@@ -608,7 +569,7 @@ export async function auditAutomod(guild: Guild): Promise<Finding[]> {
         findings.push({
             level: Level.Warning,
             title: "Discord's spam filter is off",
-            detail: `${plural(live.length, "AutoMod rule")} running, but none of them is the built in spam classifier. It is the one that costs you nothing to switch on.`,
+            detail: `${plural(live.length, "AutoMod rule")} running, none of them the spam classifier.`,
             fix
         });
     }
@@ -617,7 +578,6 @@ export async function auditAutomod(guild: Guild): Promise<Finding[]> {
         findings.push({
             level: Level.Warning,
             title: "Nothing limits mass mentions",
-            detail: "No rule caps how many people one message can ping. That is the cheapest way for one account to make a lot of noise.",
             fix
         });
     }
@@ -625,7 +585,6 @@ export async function auditAutomod(guild: Guild): Promise<Finding[]> {
     return findings;
 }
 
-/** used by the live watch, which only ever reports the critical findings */
 export function criticalTitles(guild: Guild): string[] {
     return auditGuild(guild).findings
         .filter(finding => finding.level === Level.Critical)
@@ -639,7 +598,7 @@ function reachSentence(reach: Reach) {
 const readOnly = (reach: Reach) => reach.visible.filter(name => !reach.postable.includes(name));
 
 function asText(guild: Guild, { findings, reach }: Report, accepted: string[]) {
-    const line = (f: Finding) => `[${f.level === Level.Critical ? "critical" : "warning"}] ${f.title}\n    ${f.detail}`;
+    const line = (f: Finding) => `[${f.level === Level.Critical ? "critical" : "warning"}] ${f.title}${f.detail ? `\n    ${f.detail}` : ""}`;
     const open = findings.filter(f => !accepted.includes(f.title));
     const done = findings.filter(f => accepted.includes(f.title));
 
@@ -663,8 +622,6 @@ export interface SafetyState {
 
 export const stateKey = (guildId: string) => `serverInfo-safety-${guildId}`;
 
-/** what one server contributes to the cross server list. onboarding is left out on
- *  purpose: this runs for every server at once and that check costs a request each */
 export function scoreGuild(guild: Guild, accepted: string[]) {
     const open = auditGuild(guild).findings.filter(finding => !accepted.includes(finding.title));
     return {
@@ -677,7 +634,6 @@ async function loadState(guildId: string): Promise<SafetyState> {
     const stored = await DataStore.get<Partial<SafetyState & Baseline>>(stateKey(guildId));
     if (!stored) return { baseline: null, accepted: [] };
 
-    // the first version of this wrote a bare snapshot under the same key
     if (Array.isArray(stored.titles)) return { baseline: { at: stored.at ?? 0, titles: stored.titles }, accepted: [] };
 
     return { baseline: stored.baseline ?? null, accepted: stored.accepted ?? [] };
@@ -784,7 +740,7 @@ export const SafetyTab = ErrorBoundary.wrap(({ guild, onClose }: { guild: Guild;
             <div className={cl("safety-since")}>
                 <Text variant="text-sm/normal">
                     {!baseline
-                        ? "No baseline recorded. Once this server is the way you want it, save one and the tab will only tell you what moved after that."
+                        ? "No baseline yet. Save one and this only reports what moved since."
                         : appeared || fixed.length
                             ? `Since the baseline you saved on ${since}: ${plural(appeared, "new problem")}, ${fixed.length} fixed.`
                             : `Nothing has changed since the baseline you saved on ${since}.`}
@@ -819,7 +775,7 @@ export const SafetyTab = ErrorBoundary.wrap(({ guild, onClose }: { guild: Guild;
                     <Text variant="text-sm/normal">
                         {accepted.length
                             ? "Everything the check found has been accepted."
-                            : "@everyone holds no dangerous permissions, no channel override hands one out, no role or bot grants Administrator, nobody can promote themselves, and the server's gates and safety settings are set sensibly."}
+                            : "Nothing to report."}
                     </Text>
                 </div>
             ) : (
@@ -870,6 +826,13 @@ export const SafetyTab = ErrorBoundary.wrap(({ guild, onClose }: { guild: Guild;
                             <Button
                                 size={Button.Sizes.SMALL}
                                 look={Button.Looks.LINK}
+                                onClick={() => openChannelsModal(guild)}
+                            >
+                                Channels
+                            </Button>
+                            <Button
+                                size={Button.Sizes.SMALL}
+                                look={Button.Looks.LINK}
                                 className={cl("safety-panic")}
                                 onClick={() => openPurgeModal(guild)}
                             >
@@ -916,13 +879,13 @@ export const SafetyTab = ErrorBoundary.wrap(({ guild, onClose }: { guild: Guild;
                                     {finding.title}
                                     {seen && !seen.has(finding.title) && <span className={cl("safety-new")}>new</span>}
                                 </div>
-                                <div className={cl("safety-detail")}>{finding.detail}</div>
+                                {finding.detail && <div className={cl("safety-detail")}>{finding.detail}</div>}
                                 <div className={cl("safety-row-actions")}>
                                     {finding.fix && <FixButton fix={finding.fix} guildId={guild.id} onClose={onClose} />}
                                     <Button
                                         size={Button.Sizes.SMALL}
                                         look={Button.Looks.LINK}
-                                        onClick={() => openBroadcastModal(guild, `${finding.title}. ${finding.detail}`)}
+                                        onClick={() => openBroadcastModal(guild, finding.detail ? `${finding.title}. ${finding.detail}` : finding.title)}
                                     >
                                         Tell the team
                                     </Button>

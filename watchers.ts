@@ -48,7 +48,6 @@ function once(key: string) {
     const now = Date.now();
     if (now - (lastAlert.get(key) ?? 0) < COOLDOWN) return false;
 
-    // both maps only ever grew, which on a busy account is a slow leak
     if (lastAlert.size > 500) {
         for (const [old, when] of lastAlert) if (now - when > COOLDOWN) lastAlert.delete(old);
     }
@@ -74,7 +73,6 @@ function onMessage({ guildId, channelId, message, optimistic }: {
     message?: { author?: { id: string; username: string; bot?: boolean; }; content?: string; };
     optimistic?: boolean;
 }) {
-    // the cheapest possible exit, because this runs on every message you receive
     if (optimistic || !guildId) return;
     if (!watched.size && !spikes() && !newcomers()) return;
 
