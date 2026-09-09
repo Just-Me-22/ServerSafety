@@ -6,6 +6,7 @@
 
 import { FormSwitch } from "@components/FormSwitch";
 import { classNameFactory } from "@utils/css";
+import { openUserProfile } from "@utils/discord";
 import { Guild, RenderModalProps } from "@vencord/discord-types";
 import { Button, Forms, Modal, openModal, RestAPI, ScrollerThin, SnowflakeUtils, Text, useEffect, useState } from "@webpack/common";
 
@@ -13,14 +14,12 @@ import { describeInvite, fetchInvites, Invite } from "./invites";
 import { openMemberPowerModal } from "./MemberPower";
 import { canModerate, openPunishModal } from "./Punish";
 import { list, plural } from "./SafetyTab";
+import { settings } from "./settings";
 
 const cl = classNameFactory("vc-ss-");
 
-/** ORDER_BY_GUILD_JOINED_AT_DESC, from Discord's own sort enum */
 const NEWEST_FIRST = 1;
-const PAGE = 50;
 const DAY = 86_400_000;
-/** joins this close together are one arrival, not a coincidence */
 const BURST_WINDOW = 60_000;
 const BURST_SIZE = 3;
 
@@ -47,11 +46,10 @@ interface Row {
     flags: string[];
 }
 
-/** the endpoint answers 202 while it builds its index, and expects us to wait */
 async function search(guildId: string, attempt = 0): Promise<RawMember[]> {
     const response = await RestAPI.post({
         url: `/guilds/${guildId}/members-search`,
-        body: { limit: PAGE, sort: NEWEST_FIRST }
+        body: { limit: Math.min(Math.max(settings.store.joinsCount, 1), 1000), sort: NEWEST_FIRST }
     });
 
     if (response.status === 202 && attempt < 3) {
@@ -62,7 +60,6 @@ async function search(guildId: string, attempt = 0): Promise<RawMember[]> {
     return response.body?.members ?? [];
 }
 
-/** raid names differ only in their digits, so compare what is left without them */
 const stem = (name: string) => name.toLowerCase().replace(/[^a-z]/g, "");
 
 function toRows(raw: RawMember[]): Row[] {
@@ -92,7 +89,6 @@ function toRows(raw: RawMember[]): Row[] {
         if (Date.now() - SnowflakeUtils.extractTimestamp(row.id) < DAY) row.flags.push("account made today");
     }
 
-    // names that are the same once the digits come off
     const byStem = new Map<string, Row[]>();
     for (const row of rows) {
         const key = stem(row.name);
@@ -103,7 +99,6 @@ function toRows(raw: RawMember[]): Row[] {
         if (group.length > 1) for (const row of group) row.flags.push(`name matches ${group.length - 1} other`);
     }
 
-    // several arrivals inside one minute
     const times = rows.map(row => row.joinedAt).sort((a, b) => a - b);
     for (const row of rows) {
         const near = times.filter(time => Math.abs(time - row.joinedAt) < BURST_WINDOW).length;
@@ -138,8 +133,6 @@ function RecentJoins({ guild, modalProps }: { guild: Guild; modalProps: RenderMo
         return () => { live = false; };
     }, [guild.id]);
 
-    /** how many of the people listed came in through the same code, which is the
-     *  number that tells you an invite is the one leaking */
     const sharedWith = (code: string) => (rows ?? []).filter(row => row.invite === code).length;
 
     const flagged = rows?.filter(row => row.flags.length) ?? [];
@@ -176,7 +169,13 @@ function RecentJoins({ guild, modalProps }: { guild: Guild; modalProps: RenderMo
                                         : <div className={cl("servers-icon", "servers-icon-empty")} aria-hidden />}
 
                                     <div className={cl("joins-body")}>
-                                        <div className={cl("safety-title")}>{row.name}</div>
+                                        <button
+                                            type="button"
+                                            className={cl("linkish", "safety-title")}
+                                            onClick={() => openUserProfile(row.id, guild.id)}
+                                        >
+                                            {row.name}
+                                        </button>
                                         <div className={cl("safety-detail")}>
                                             Joined {ago(Date.now() - row.joinedAt)} ago, account was {ago(row.accountAge)} old by then
                                             {row.invite && (
