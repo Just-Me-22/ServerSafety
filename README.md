@@ -114,8 +114,35 @@ number rather than after.
 Pinned messages are skipped unless you tick the box, and there is a stop button that
 takes effect on the next message.
 
-This is the only thing in the plugin with no undo. History records what was cleared as a
-record of what you did, and says in the entry itself that it cannot be reversed.
+Along with deleting channels, this is one of the two things in the plugin with no undo.
+History records what was cleared as a record of what you did, and says in the entry
+itself that it cannot be reversed.
+
+## Adding and removing channels
+
+The Channels button does both halves of the job in one window.
+
+Adding is a single channel at a time with the options Discord gives you: name, kind
+(text, voice, category, announcement or forum), which category it goes in, a topic,
+age restriction and slowmode.
+
+Removing is a list of every channel in the server, categories included, each with a
+tick box. Anything you lack Manage Channels on is disabled and says so rather than
+failing when you press delete.
+
+Two things are worth knowing before you use the removing half:
+
+- **Deleting a channel deletes every message in it, and Discord has no restore.** There
+  is no undo here and there cannot be one. History writes down what went, and that is
+  all it can do.
+- **Ticking a category does not delete the channels inside it.** They stay, and simply
+  stop being in a category. The window says this too, because it is the opposite of
+  what most people expect.
+
+Past five channels in one go, the delete button stays locked until you type the server
+name. Deletions are paced at roughly one a second with a stop button, and if Discord
+answers with a rate limit the tool waits out the delay Discord itself asks for rather
+than guessing at a safe speed.
 
 ## What it will not do
 

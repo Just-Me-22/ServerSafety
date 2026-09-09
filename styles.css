@@ -757,3 +757,28 @@
     padding: 0;
     background: none;
 }
+
+.vc-ss-chan-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+.vc-ss-chan-row:hover {
+    background: var(--background-mod-subtle);
+}
+
+.vc-ss-chan-row[data-indented] {
+    padding-left: 24px;
+}
+
+.vc-ss-chan-row input {
+    flex: 0 0 auto;
+    cursor: pointer;
+}
+
+.vc-ss-chan-row input:disabled {
+    cursor: default;
+}
