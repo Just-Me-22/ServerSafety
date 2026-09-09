@@ -774,7 +774,65 @@
 }
 
 .vc-ss-chan-row[data-indented] {
-    padding-left: 24px;
+    padding-left: 26px;
+}
+
+.vc-ss-chan-row[data-category] {
+    margin-top: 10px;
+    border-bottom: 1px solid var(--background-modifier-accent);
+}
+
+.vc-ss-chan-row[data-category] .vc-ss-safety-title {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--header-secondary);
+}
+
+.vc-ss-chan-row.vc-ss-chan-locked .vc-ss-safety-title {
+    opacity: 0.5;
+}
+
+.vc-ss-chan-roles {
+    max-height: 160px;
+    margin: 4px 0 8px;
+}
+
+.vc-ss-chan-edit {
+    margin: 4px 0 12px;
+    padding: 10px;
+    border: 1px solid var(--background-modifier-accent);
+    border-radius: 6px;
+}
+
+.vc-ss-chan-cols {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.vc-ss-chan-cols .vc-ss-cast-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+}
+
+.vc-ss-chan-cols > * {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.vc-ss-chan-switches {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 4px;
+}
+
+.vc-ss-chan-switches > * {
+    flex: 1 1 0;
+    min-width: 0;
+    margin: 0;
 }
 
 .vc-ss-chan-row input {
@@ -784,4 +842,52 @@
 
 .vc-ss-chan-row input:disabled {
     cursor: default;
+}
+
+.vc-ss-purge-pick {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.4em 1em;
+    margin-top: 0.75em;
+    color: var(--text-muted);
+}
+
+.vc-ss-rule {
+    margin: 1em 0 0.75em;
+    border: none;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.vc-ss-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+    margin: 0.75em 0;
+    padding-bottom: 0.75em;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.vc-ss-tools-search {
+    display: flex;
+    align-items: center;
+    gap: 0.75em;
+}
+
+.vc-ss-tools-search > div:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.vc-ss-tools-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15em;
+}
+
+.vc-ss-tools-heading {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
 }

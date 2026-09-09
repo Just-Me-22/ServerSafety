@@ -8,6 +8,7 @@ import * as DataStore from "@api/DataStore";
 import { Guild, Permissions } from "@vencord/discord-types";
 import { GuildMemberStore, GuildRoleStore, PermissionsBits, RestAPI, UserStore } from "@webpack/common";
 
+import { remember } from "./departures";
 import { record, Target } from "./History";
 import { guildChannels, has, plural } from "./SafetyTab";
 import { scheduleUnban } from "./tempBans";
@@ -80,7 +81,8 @@ export async function kick(guild: Guild, userId: string, reason: string) {
     // but its published type does not list the field
     await RestAPI.del({ url: `/guilds/${guild.id}/members/${userId}`, reason } as any);
 
-    await log(guild, `Kicked ${name}`, []);
+    await remember(guild.id, userId, { name, kind: "kick", at: Date.now() });
+    await log(guild, `Kicked ${name}`, [{ kind: "kick", userId, name }]);
 }
 
 export async function ban(guild: Guild, userId: string, reason: string, deleteSeconds: number, days = 0) {
@@ -90,6 +92,8 @@ export async function ban(guild: Guild, userId: string, reason: string, deleteSe
         body: { delete_message_seconds: deleteSeconds },
         reason
     } as any);
+
+    await remember(guild.id, userId, { name, kind: "ban", at: Date.now() });
 
     // discord bans have no expiry, so a timed one is ours to lift later
     if (days > 0) {

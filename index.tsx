@@ -9,14 +9,19 @@ import "./styles.css";
 import { findGroupChildrenByChildId, NavContextMenuPatchCallback } from "@api/ContextMenu";
 import definePlugin from "@utils/types";
 import { Guild } from "@vencord/discord-types";
-import { GuildStore, Menu } from "@webpack/common";
+import { GuildStore, Menu, SelectedGuildStore } from "@webpack/common";
 
+import { configFor, startAutoSlow, stopAutoSlow } from "./autoSlow";
+import { openDossierModal } from "./Dossier";
 import { startWatch, stopWatch } from "./liveWatch";
+import { startUnlockTimer, stopUnlockTimer } from "./lockdown";
 import { openMemberPowerModal } from "./MemberPower";
+import { startRaidGuard, stopRaidGuard } from "./raidGuard";
 import { openGuildSafetyModal } from "./SafetyModal";
 import { settings } from "./settings";
 import { startTempBans, stopTempBans } from "./tempBans";
 import { startWatchers, stopWatchers } from "./watchers";
+import { rulesFor, startWatchRules, stopWatchRules } from "./watchRules";
 
 const GuildPatch: NavContextMenuPatchCallback = (children, { guild }: { guild?: Guild; }) => {
     if (!guild) return;
@@ -45,9 +50,27 @@ const UserPatch: NavContextMenuPatchCallback = (children, { user, guildId }: { u
                 const guild = GuildStore.getGuild(guildId);
                 if (guild) openMemberPowerModal(guild, user.id);
             }}
+        />,
+        <Menu.MenuItem
+            id="vc-member-dossier"
+            label="Everything On Them"
+            action={() => openDossierModal(user.id)}
         />
     );
 };
+
+/** e.code rather than e.key: on some layouts a modifier changes the character sent,
+ *  and a key comparison then never matches */
+function shortcut(e: KeyboardEvent) {
+    if (!e.ctrlKey || !e.shiftKey || e.altKey || e.code !== "KeyS") return;
+
+    const guildId = SelectedGuildStore.getGuildId();
+    const guild = guildId ? GuildStore.getGuild(guildId) : null;
+    if (!guild) return;
+
+    e.preventDefault();
+    openGuildSafetyModal(guild);
+}
 
 export default definePlugin({
     name: "ServerSafety",
@@ -63,14 +86,33 @@ export default definePlugin({
     },
 
     start() {
+        window.addEventListener("keydown", shortcut, true);
         startWatch(() => settings.store.liveWatch);
-        startWatchers(() => settings.store.watchSpikes, () => settings.store.watchNewAccounts);
+        startWatchers({
+            spikes: guildId => rulesFor(guildId).includes("spikes"),
+            newcomers: guildId => rulesFor(guildId).includes("newcomers"),
+            rejoins: guildId => rulesFor(guildId).includes("rejoins"),
+            firstPost: guildId => rulesFor(guildId).includes("firstpost"),
+            autoSlow: guildId => {
+                const one = configFor(guildId);
+                return one.on ? { count: one.count, window: one.window, seconds: one.seconds, minutes: one.minutes } : null;
+            }
+        });
         startTempBans();
+        startAutoSlow();
+        startRaidGuard();
+        startUnlockTimer();
+        startWatchRules();
     },
 
     stop() {
+        window.removeEventListener("keydown", shortcut, true);
         stopWatch();
         stopWatchers();
         stopTempBans();
+        stopAutoSlow();
+        stopRaidGuard();
+        stopUnlockTimer();
+        stopWatchRules();
     }
 });

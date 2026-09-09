@@ -8,7 +8,8 @@ import * as DataStore from "@api/DataStore";
 import { ChannelStore, GuildMemberStore, GuildRoleStore, GuildStore, RestAPI } from "@webpack/common";
 
 const KEY = "serverInfo-history";
-const LIMIT = 100;
+const PER_GUILD = 100;
+const TOTAL = 600;
 
 interface Overwrite {
     allow: string;
@@ -18,6 +19,10 @@ interface Overwrite {
 interface GuildSettings {
     verification_level: number;
     explicit_content_filter: number;
+    features?: string[];
+    rules_channel_id?: string | null;
+    public_updates_channel_id?: string | null;
+    default_message_notifications?: number;
 }
 
 interface Incidents {
@@ -33,6 +38,8 @@ export type Target =
     | { kind: "overwrite"; channelId: string; name: string; before: Overwrite | null; after: Overwrite | null; }
     | { kind: "message"; channelId: string; name: string; messageId: string; }
     | { kind: "ban"; userId: string; name: string; }
+    | { kind: "kick"; userId: string; name: string; }
+    | { kind: "nick"; userId: string; name: string; before: string | null; after: string | null; }
     | { kind: "timeout"; userId: string; name: string; before: string | null; after: string | null; }
     | { kind: "slowmode"; channelId: string; name: string; before: number; after: number; };
 
@@ -55,7 +62,15 @@ export async function record(entry: Omit<Entry, "id" | "at">) {
     const log = await readHistory();
 
     log.unshift({ ...entry, id, at: Date.now() });
-    await DataStore.set(KEY, log.slice(0, LIMIT));
+
+    const kept = new Map<string, number>();
+    const trimmed = log.filter(one => {
+        const seen = (kept.get(one.guildId) ?? 0) + 1;
+        kept.set(one.guildId, seen);
+        return seen <= PER_GUILD;
+    });
+
+    await DataStore.set(KEY, trimmed.slice(0, TOTAL));
 
     return id;
 }
@@ -119,10 +134,17 @@ export function drifted(entry: Entry): string[] {
             }
             case "message":
             case "ban":
+            case "kick":
                 break;
             case "timeout": {
                 const now = (GuildMemberStore.getMember(entry.guildId, target.userId) as any)?.communicationDisabledUntil ?? null;
                 if (now !== target.after) off.push(target.name);
+                break;
+            }
+            case "nick": {
+                const member = GuildMemberStore.getMember(entry.guildId, target.userId);
+                if (!member) off.push(`${target.name}, who has left`);
+                else if ((member.nick ?? null) !== target.after) off.push(target.name);
                 break;
             }
             case "slowmode": {
@@ -188,6 +210,10 @@ export async function undo(entry: Entry) {
                 }
                 break;
 
+            // nothing to put back: they can rejoin on their own with any working invite
+            case "kick":
+                break;
+
             case "timeout":
                 await RestAPI.patch({
                     url: `/guilds/${entry.guildId}/members/${target.userId}`,
@@ -199,6 +225,13 @@ export async function undo(entry: Entry) {
                 await RestAPI.patch({
                     url: `/channels/${target.channelId}`,
                     body: { rate_limit_per_user: target.before }
+                });
+                break;
+
+            case "nick":
+                await RestAPI.patch({
+                    url: `/guilds/${entry.guildId}/members/${target.userId}`,
+                    body: { nick: target.before }
                 });
                 break;
         }

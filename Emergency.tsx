@@ -11,7 +11,8 @@ import { Guild, RenderModalProps } from "@vencord/discord-types";
 import { Alerts, Button, Forms, GuildRoleStore, Modal, openModal, PermissionsBits, RestAPI, ScrollerThin, Select, Text, Toasts, useEffect, useState } from "@webpack/common";
 
 import { sendableChannels } from "./Broadcast";
-import { markUndone, record, Target } from "./History";
+import { record, Target } from "./History";
+import { noteLockdown, panicKey, restoreLockdown, Snapshot } from "./lockdown";
 import { everyoneIn, guildChannels, has, plural } from "./SafetyTab";
 import { postTo } from "./send";
 
@@ -21,25 +22,6 @@ const RAISED_VERIFICATION = 3;
 const SCAN_EVERYONE = 2;
 
 const HOURS = [1, 3, 6, 12, 24];
-
-interface ChannelState {
-    id: string;
-    name: string;
-    allow: string | null;
-    deny: string | null;
-}
-
-interface Snapshot {
-    at: number;
-    entryId?: string;
-    verificationLevel: number;
-    explicitContentFilter: number;
-    invitesDisabledUntil: string | null;
-    dmsDisabledUntil: string | null;
-    channels: ChannelState[];
-}
-
-const panicKey = (guildId: string) => `serverInfo-panic-${guildId}`;
 
 const incidents = (guild: Guild) => (guild as any).incidentsData ?? null;
 
@@ -63,6 +45,7 @@ function Emergency({ guild, modalProps }: { guild: Guild; modalProps: RenderModa
     const [announceIn, setAnnounceIn] = useState("");
     const [notice, setNotice] = useState("We are locking the server down for a bit while we deal with something. Sorry for the interruption.");
     const [hours, setHours] = useState(1);
+    const [liftAfter, setLiftAfter] = useState(0);
     const [busy, setBusy] = useState(false);
     const [saved, setSaved] = useState<Snapshot | null>();
 
@@ -175,8 +158,13 @@ function Emergency({ guild, modalProps }: { guild: Guild; modalProps: RenderModa
             const entryId = await record({ guildId: guild.id, guildName: guild.name, what: plan.join(" "), targets });
             logged = true;
 
-            const stamped = { ...snapshot, entryId };
+            const stamped: Snapshot = {
+                ...snapshot,
+                entryId,
+                unlockAt: liftAfter ? Date.now() + liftAfter * 3_600_000 : undefined
+            };
             await DataStore.set(panicKey(guild.id), stamped);
+            await noteLockdown(guild.id);
 
             if (announce && announceIn) {
                 await postTo(guild, announceIn, notice, "Announced the lockdown");
@@ -203,35 +191,7 @@ function Emergency({ guild, modalProps }: { guild: Guild; modalProps: RenderModa
         if (!saved) return;
         setBusy(true);
         try {
-            await RestAPI.patch({
-                url: `/guilds/${guild.id}`,
-                body: {
-                    verification_level: saved.verificationLevel,
-                    explicit_content_filter: saved.explicitContentFilter
-                }
-            });
-
-            await RestAPI.put({
-                url: `/guilds/${guild.id}/incident-actions`,
-                body: {
-                    invites_disabled_until: saved.invitesDisabledUntil,
-                    dms_disabled_until: saved.dmsDisabledUntil
-                }
-            });
-
-            for (const channel of saved.channels) {
-                if (channel.allow == null) {
-                    await RestAPI.del({ url: `/channels/${channel.id}/permissions/${guild.id}` });
-                } else {
-                    await RestAPI.put({
-                        url: `/channels/${channel.id}/permissions/${guild.id}`,
-                        body: { type: 0, allow: channel.allow, deny: channel.deny }
-                    });
-                }
-            }
-
-            if (saved.entryId) await markUndone(saved.entryId);
-            await DataStore.del(panicKey(guild.id));
+            await restoreLockdown(guild.id);
             setSaved(null);
             Toasts.show({ id: Toasts.genId(), type: Toasts.Type.SUCCESS, message: "Put back the way it was" });
             modalProps.onClose();
@@ -266,6 +226,7 @@ function Emergency({ guild, modalProps }: { guild: Guild; modalProps: RenderModa
                         <Text variant="text-sm/normal">
                             Restore puts verification back to {saved.verificationLevel}, media scanning back to {saved.explicitContentFilter}
                             {saved.channels.length ? `, and unlocks ${plural(saved.channels.length, "channel")}` : ""}.
+                            {saved.unlockAt != null && ` It lifts itself at ${new Date(saved.unlockAt).toLocaleTimeString()} if you leave it.`}
                         </Text>
                         <Button
                             className={cl("safety-toggle")}
@@ -367,6 +328,16 @@ function Emergency({ guild, modalProps }: { guild: Guild; modalProps: RenderModa
                             />
                         </div>
                     )}
+
+                    <div className={cl("panic-duration")}>
+                        <Text variant="text-sm/normal">Lift it by itself after</Text>
+                        <Select
+                            options={[{ label: "never, I will do it", value: 0 }, ...HOURS.map(h => ({ label: plural(h, "hour"), value: h }))]}
+                            select={setLiftAfter}
+                            isSelected={value => value === liftAfter}
+                            serialize={String}
+                        />
+                    </div>
                 </ScrollerThin>
 
                 <div className={cl("power-apply")}>

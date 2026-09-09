@@ -10,6 +10,9 @@ import { openUserProfile } from "@utils/discord";
 import { Guild, RenderModalProps } from "@vencord/discord-types";
 import { Button, Forms, Modal, openModal, RestAPI, ScrollerThin, SnowflakeUtils, Text, useEffect, useState } from "@webpack/common";
 
+import { note } from "./arrivals";
+import { remember } from "./cache";
+import { Departure, everyone, syncFromAuditLog } from "./departures";
 import { describeInvite, fetchInvites, Invite } from "./invites";
 import { openMemberPowerModal } from "./MemberPower";
 import { canModerate, openPunishModal } from "./Punish";
@@ -23,9 +26,11 @@ const DAY = 86_400_000;
 const BURST_WINDOW = 60_000;
 const BURST_SIZE = 3;
 
-interface RawMember {
+export interface RawMember {
     member: {
         user: { id: string; username: string; global_name?: string | null; avatar?: string | null; };
+        nick?: string | null;
+        roles?: string[];
         joined_at: string;
         communication_disabled_until?: string | null;
         unusual_dm_activity_until?: string | null;
@@ -46,19 +51,32 @@ interface Row {
     flags: string[];
 }
 
-async function search(guildId: string, attempt = 0): Promise<RawMember[]> {
+export const searchMembers = (guildId: string, limit: number) =>
+    remember(`members:${guildId}:${limit}`, () => fetchMembers(guildId, limit));
+
+async function fetchMembers(guildId: string, limit: number, attempt = 0): Promise<RawMember[]> {
     const response = await RestAPI.post({
         url: `/guilds/${guildId}/members-search`,
-        body: { limit: Math.min(Math.max(settings.store.joinsCount, 1), 1000), sort: NEWEST_FIRST }
+        body: { limit: Math.min(Math.max(limit, 1), 1000), sort: NEWEST_FIRST }
     });
 
+    // discord answers 202 while it builds the index, and asks to be asked again
     if (response.status === 202 && attempt < 3) {
         await new Promise(resolve => setTimeout(resolve, (response.body?.retry_after ?? 1) * 1000));
-        return search(guildId, attempt + 1);
+        return fetchMembers(guildId, limit, attempt + 1);
     }
 
     return response.body?.members ?? [];
 }
+
+export const arrivalsIn = (raw: RawMember[]) => raw
+    .filter(entry => entry.source_invite_code)
+    .map(entry => ({
+        userId: entry.member.user.id,
+        code: entry.source_invite_code!,
+        name: entry.member.user.global_name || entry.member.user.username,
+        at: new Date(entry.member.joined_at).getTime()
+    }));
 
 const stem = (name: string) => name.toLowerCase().replace(/[^a-z]/g, "");
 
@@ -122,21 +140,41 @@ function RecentJoins({ guild, modalProps }: { guild: Guild; modalProps: RenderMo
     const [denied, setDenied] = useState(false);
     const [onlyFlagged, setOnlyFlagged] = useState(false);
     const [invites, setInvites] = useState<Map<string, Invite> | null>();
+    const [past, setPast] = useState<Record<string, Departure>>();
     const [open, setOpen] = useState<string>();
 
     useEffect(() => {
         let live = true;
-        search(guild.id)
-            .then(raw => { if (live) setRows(toRows(raw)); })
+        searchMembers(guild.id, settings.store.joinsCount)
+            .then(raw => {
+                void note(guild.id, arrivalsIn(raw));
+                if (live) setRows(toRows(raw));
+            })
             .catch(() => { if (live) setDenied(true); });
         fetchInvites(guild.id).then(found => { if (live) setInvites(found); });
+        syncFromAuditLog(guild.id)
+            .then(() => everyone(guild.id))
+            .then(book => { if (live) setPast(book); });
         return () => { live = false; };
     }, [guild.id]);
 
     const sharedWith = (code: string) => (rows ?? []).filter(row => row.invite === code).length;
 
-    const flagged = rows?.filter(row => row.flags.length) ?? [];
-    const shown = onlyFlagged ? flagged : rows ?? [];
+    // a record older than this stay means they left and came back. one from after it
+    // would be about the stay they are on now, which is not a rejoin.
+    const rejoined = (row: Row) => {
+        const before = past?.[row.id];
+        if (!before || before.at >= row.joinedAt) return null;
+        return `${before.kind === "ban" ? "banned" : "kicked"} here on ${new Date(before.at).toLocaleDateString()}${before.by ? ` by ${before.by}` : ""}, and came back`;
+    };
+
+    const withPast = (rows ?? []).map(row => {
+        const back = rejoined(row);
+        return back ? { ...row, flags: [back, ...row.flags] } : row;
+    });
+
+    const flagged = withPast.filter(row => row.flags.length);
+    const shown = onlyFlagged ? flagged : withPast;
 
     return (
         <Modal {...modalProps} size="md" title={<Forms.FormTitle tag="h5">Who just joined {guild.name}</Forms.FormTitle>}>

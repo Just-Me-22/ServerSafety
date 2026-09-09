@@ -7,9 +7,10 @@
 import { FormSwitch } from "@components/FormSwitch";
 import { classNameFactory } from "@utils/css";
 import { Guild, RenderModalProps } from "@vencord/discord-types";
-import { Alerts, Button, Forms, Modal, openModal, PermissionsBits, PermissionStore, RestAPI, ScrollerThin, Select, Text, TextInput, Toasts, useRef, useState } from "@webpack/common";
+import { Button, Checkbox, Forms, Modal, openModal, PermissionsBits, PermissionStore, RestAPI, ScrollerThin, Select, Text, TextInput, Toasts, useRef, useState } from "@webpack/common";
 
 import { sendableChannels } from "./Broadcast";
+import { confirmBulk } from "./confirm";
 import { record } from "./History";
 import { plural } from "./SafetyTab";
 import { settings } from "./settings";
@@ -45,6 +46,7 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
     const [includePinned, setIncludePinned] = useState(false);
 
     const [found, setFound] = useState<Msg[]>();
+    const [keep, setKeep] = useState<Set<string>>(new Set());
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState<string>();
     // a ref rather than state: the loop below captures its variables when it starts, so
@@ -65,9 +67,19 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
         return true;
     };
 
+    const chosen = found?.filter(m => !keep.has(m.id)) ?? [];
+
+    const spare = (id: string) => setKeep(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+    });
+
     async function scan() {
         setBusy(true);
         setFound(undefined);
+        setKeep(new Set());
         try {
             const hits: Msg[] = [];
             let before: string | undefined;
@@ -106,20 +118,20 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
     }
 
     async function purge() {
-        if (!found?.length) return;
+        if (!chosen.length) return;
         setBusy(true);
         stop.current = false;
 
         let done = 0;
         try {
-            for (const m of found) {
+            for (const m of chosen) {
                 if (stop.current) break;
 
                 await RestAPI.del({ url: `/channels/${channelId}/messages/${m.id}` });
                 done++;
-                setProgress(`deleted ${done} of ${found.length}`);
+                setProgress(`deleted ${done} of ${chosen.length}`);
 
-                if (done < found.length) await new Promise(r => setTimeout(r, GAP));
+                if (done < chosen.length) await new Promise(r => setTimeout(r, GAP));
             }
         } catch (error) {
             Toasts.show({
@@ -138,6 +150,7 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
             }
             setProgress(undefined);
             setFound(undefined);
+            setKeep(new Set());
             setBusy(false);
             Toasts.show({ id: Toasts.genId(), type: Toasts.Type.SUCCESS, message: `Deleted ${done}` });
         }
@@ -163,7 +176,7 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
                     <Text variant="text-sm/normal">Channel</Text>
                     <Select
                         options={channels.map(c => ({ label: `#${c.name}`, value: c.id }))}
-                        select={(id: string) => { setChannelId(id); setFound(undefined); }}
+                        select={(id: string) => { setChannelId(id); setFound(undefined); setKeep(new Set()); }}
                         isSelected={value => value === channelId}
                         serialize={String}
                     />
@@ -191,20 +204,53 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
                 />
 
                 {found && found.length > 0 && (
-                    <ScrollerThin className={cl("scroller")} orientation="vertical">
-                        {found.map(m => (
-                            <div key={m.id} className={cl("safety-row")}>
-                                <div className={cl("safety-title")}>
-                                    {m.author.global_name || m.author.username}
-                                    {m.author.bot && <span className={cl("power-locked")}>bot</span>}
-                                </div>
-                                <div className={cl("safety-detail")}>
-                                    {new Date(m.timestamp).toLocaleString()}
-                                    {m.content ? `  ${m.content.slice(0, 140)}` : "  (no text, an attachment or embed)"}
-                                </div>
+                    <>
+                        <div className={cl("purge-pick")}>
+                            <Text variant="text-sm/normal">
+                                {chosen.length} of {found.length} ticked
+                            </Text>
+                            <div className={cl("safety-actions-right")}>
+                                <Button
+                                    size={Button.Sizes.SMALL}
+                                    look={Button.Looks.LINK}
+                                    disabled={busy || !keep.size}
+                                    onClick={() => setKeep(new Set())}
+                                >
+                                    Tick all
+                                </Button>
+                                <Button
+                                    size={Button.Sizes.SMALL}
+                                    look={Button.Looks.LINK}
+                                    disabled={busy || !chosen.length}
+                                    onClick={() => setKeep(new Set(found.map(m => m.id)))}
+                                >
+                                    Untick all
+                                </Button>
                             </div>
-                        ))}
-                    </ScrollerThin>
+                        </div>
+
+                        <ScrollerThin className={cl("scroller")} orientation="vertical">
+                            {found.map(m => (
+                                <div key={m.id} className={cl("safety-row")}>
+                                    <Checkbox
+                                        value={!keep.has(m.id)}
+                                        onChange={() => spare(m.id)}
+                                        disabled={busy}
+                                        align="top"
+                                    >
+                                        <div className={cl("safety-title")}>
+                                            {m.author.global_name || m.author.username}
+                                            {m.author.bot && <span className={cl("power-locked")}>bot</span>}
+                                        </div>
+                                        <div className={cl("safety-detail")}>
+                                            {new Date(m.timestamp).toLocaleString()}
+                                            {m.content ? `  ${m.content.slice(0, 140)}` : "  (no text, an attachment or embed)"}
+                                        </div>
+                                    </Checkbox>
+                                </div>
+                            ))}
+                        </ScrollerThin>
+                    </>
                 )}
 
                 <div className={cl("power-apply")}>
@@ -213,7 +259,9 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
                                 ? "You need Manage Messages in that channel"
                                 : found
                                     ? found.length
-                                        ? `${plural(found.length, "message")} match, about ${Math.ceil(found.length * GAP / 60000)} minute(s) to clear`
+                                        ? chosen.length
+                                            ? `${plural(chosen.length, "message")} ticked, about ${Math.ceil(chosen.length * GAP / 60000)} minute(s) to clear`
+                                            : "nothing ticked"
                                         : "nothing matches those filters"
                                     : filtered ? "ready to look" : "no filters set, so this would match everything it reads")}
                     </Text>
@@ -230,18 +278,12 @@ function Purge({ guild, modalProps }: { guild: Guild; modalProps: RenderModalPro
                         <Button
                             size={Button.Sizes.SMALL}
                             color={Button.Colors.RED}
-                            disabled={busy || !allowed || !found?.length}
-                            onClick={() => Alerts.show({
-                                title: `Delete ${plural(found?.length ?? 0, "message")}?`,
-                                body: (
-                                    <div>
-                                        <p>From #{channel?.name}, one at a time, taking about {Math.ceil((found?.length ?? 0) * GAP / 60000)} minute(s).</p>
-                                        <p><strong>Nothing brings them back. There is no undo for this one.</strong></p>
-                                    </div>
-                                ),
-                                confirmText: "Delete them",
-                                confirmColor: Button.Colors.RED,
-                                cancelText: "Cancel",
+                            disabled={busy || !allowed || !chosen.length}
+                            onClick={() => confirmBulk({
+                                title: `Delete ${plural(chosen.length, "message")}?`,
+                                items: chosen.map(one => `${one.author.global_name || one.author.username}: ${(one.content || "an attachment").slice(0, 60)}`),
+                                warning: `From #${channel?.name}, about ${Math.ceil(chosen.length * GAP / 60000)} minute(s). Nothing brings them back.`,
+                                verb: "Delete them",
                                 onConfirm: purge
                             })}
                         >

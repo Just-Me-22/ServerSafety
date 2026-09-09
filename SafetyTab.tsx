@@ -12,17 +12,9 @@ import { Channel, Guild, Permissions, Role } from "@vencord/discord-types";
 import { findByPropsLazy } from "@webpack";
 import { Button, ChannelRouter, ChannelStore, GuildChannelStore, GuildRoleStore, PermissionsBits, RestAPI, ScrollerThin, Text, useEffect, useState } from "@webpack/common";
 
-import { openAllServersModal } from "./AllServers";
 import { AuditTrail } from "./AuditTrail";
 import { openBroadcastModal } from "./Broadcast";
-import { openBulkModal } from "./Bulk";
-import { openChannelsModal } from "./Channels";
-import { openEmergencyModal } from "./Emergency";
-import { openHistoryModal } from "./HistoryModal";
-import { openInspectModal } from "./Inspect";
-import { openPurgeModal } from "./Purge";
-import { openRecentJoinsModal } from "./RecentJoins";
-import { openRoleDiffModal } from "./RoleDiff";
+import { Tools } from "./Tools";
 
 const GuildSettingsActions = findByPropsLazy("open", "selectRole", "updateGuild");
 
@@ -602,9 +594,18 @@ function asText(guild: Guild, { findings, reach }: Report, accepted: string[]) {
     const open = findings.filter(f => !accepted.includes(f.title));
     const done = findings.filter(f => accepted.includes(f.title));
 
+    const admins = GuildRoleStore.getSortedRoles(guild.id).filter(role => has(role.permissions, "ADMINISTRATOR"));
+
+    const settings = [
+        `Verification: ${VERIFICATION_LEVELS[guild.verificationLevel] ?? guild.verificationLevel}`,
+        `Media scanning: ${["nobody", "members without a role", "everyone"][guild.explicitContentFilter] ?? guild.explicitContentFilter}`,
+        `Community: ${guild.features.has("COMMUNITY") ? "on" : "off"}`,
+        `Roles with Administrator: ${admins.length}${admins.length ? ` (${admins.map(role => role.name).join(", ")})` : ""}`
+    ].join("\n");
+
     const head = reach
-        ? `${reachSentence(reach)}\n\nCan post in: ${reach.postable.join(", ") || "nothing"}\nCan only read: ${readOnly(reach).join(", ") || "nothing"}\n\n`
-        : "";
+        ? `${settings}\n\n${reachSentence(reach)}\n\nCan post in: ${reach.postable.join(", ") || "nothing"}\nCan only read: ${readOnly(reach).join(", ") || "nothing"}\n\n`
+        : `${settings}\n\n`;
     const tail = done.length ? `\n\nAccepted\n\n${done.map(line).join("\n\n")}` : "";
 
     return `${guild.name} permission check\n\n${head}${open.map(line).join("\n\n")}${tail}`;
@@ -769,6 +770,8 @@ export const SafetyTab = ErrorBoundary.wrap(({ guild, onClose }: { guild: Guild;
                 {showTrail && <AuditTrail guild={guild} />}
             </div>
 
+            <Tools guild={guild} onCopy={() => copyToClipboard(asText(guild, report, state.accepted))} />
+
             {!open.length ? (
                 <div className={cl("safety-clear")}>
                     <Text variant="text-md/semibold">{accepted.length ? "Nothing left to fix" : "Nothing to flag"}</Text>
@@ -786,87 +789,6 @@ export const SafetyTab = ErrorBoundary.wrap(({ guild, onClose }: { guild: Guild;
                                 ? `${critical} of ${open.length} need fixing now.`
                                 : `${plural(open.length, "thing")} worth tightening.`}
                         </Text>
-                        <div className={cl("safety-actions-right")}>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                className={cl("safety-panic")}
-                                onClick={() => openEmergencyModal(guild)}
-                            >
-                                Emergency
-                            </Button>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                onClick={() => openRecentJoinsModal(guild)}
-                            >
-                                Recent joins
-                            </Button>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                onClick={() => openBroadcastModal(guild)}
-                            >
-                                Broadcast
-                            </Button>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                onClick={() => openInspectModal(guild)}
-                            >
-                                Look around
-                            </Button>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                onClick={() => openBulkModal(guild)}
-                            >
-                                Bulk changes
-                            </Button>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                onClick={() => openChannelsModal(guild)}
-                            >
-                                Channels
-                            </Button>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                className={cl("safety-panic")}
-                                onClick={() => openPurgeModal(guild)}
-                            >
-                                Clear messages
-                            </Button>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                onClick={() => openRoleDiffModal(guild)}
-                            >
-                                Compare roles
-                            </Button>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                onClick={openHistoryModal}
-                            >
-                                History
-                            </Button>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                onClick={openAllServersModal}
-                            >
-                                Check every server
-                            </Button>
-                            <Button
-                                size={Button.Sizes.SMALL}
-                                look={Button.Looks.LINK}
-                                onClick={() => copyToClipboard(asText(guild, report, state.accepted))}
-                            >
-                                Copy report
-                            </Button>
-                        </div>
                     </div>
 
                     <ScrollerThin className={cl("scroller")} orientation="vertical">

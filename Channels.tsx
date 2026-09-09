@@ -7,8 +7,9 @@
 import { FormSwitch } from "@components/FormSwitch";
 import { classNameFactory } from "@utils/css";
 import { Channel, Guild, RenderModalProps } from "@vencord/discord-types";
-import { Alerts, Button, Forms, GuildChannelStore, Modal, openModal, PermissionsBits, PermissionStore, RestAPI, ScrollerThin, Select, Text, TextInput, Toasts, useRef, useState } from "@webpack/common";
+import { Alerts, Button, Forms, GuildChannelStore, GuildRoleStore, Modal, openModal, PermissionsBits, PermissionStore, RestAPI, ScrollerThin, Select, Text, TextInput, Toasts, useRef, useState } from "@webpack/common";
 
+import { ChannelEdit } from "./ChannelEdit";
 import { record } from "./History";
 import { plural } from "./SafetyTab";
 
@@ -21,12 +22,31 @@ const KINDS = [
     { label: "Voice", value: 2 },
     { label: "Category", value: CATEGORY },
     { label: "Announcement", value: 5 },
+    { label: "Stage", value: 13 },
     { label: "Forum", value: 15 }
 ];
 
 const KIND_NAMES: Record<number, string> = {
     0: "text", 2: "voice", 4: "category", 5: "announcement", 13: "stage", 15: "forum"
 };
+
+/** a 400 from discord is usually Invalid Form Body, which says nothing. the reason sits
+ *  in a nested _errors array keyed by the field that was wrong. */
+function why(error: any): string {
+    const body = error?.body;
+    if (!body) return String(error);
+
+    const walk = (node: any): string | undefined => {
+        if (!node || typeof node !== "object") return;
+        if (Array.isArray(node._errors) && node._errors[0]?.message) return node._errors[0].message;
+        for (const value of Object.values(node)) {
+            const found = walk(value);
+            if (found) return found;
+        }
+    };
+
+    return walk(body.errors) ?? body.message ?? String(error);
+}
 
 const GAP = 700;
 const TYPE_IT_OUT = 5;
@@ -65,6 +85,9 @@ function Channels({ guild, modalProps }: { guild: Guild; modalProps: RenderModal
     const [topic, setTopic] = useState("");
     const [nsfw, setNsfw] = useState(false);
     const [slow, setSlow] = useState("");
+    const [editing, setEditing] = useState<string | null>(null);
+    const [priv, setPriv] = useState(false);
+    const [viewers, setViewers] = useState<string[]>([]);
 
     const [picked, setPicked] = useState<string[]>([]);
     const [typed, setTyped] = useState("");
@@ -78,6 +101,9 @@ function Channels({ guild, modalProps }: { guild: Guild; modalProps: RenderModal
         setPicked(current => current.includes(id) ? current.filter(one => one !== id) : [...current, id]);
 
     const deletable = (channel: Channel) => PermissionStore.can(PermissionsBits.MANAGE_CHANNELS, channel);
+    const roles = GuildRoleStore.getSortedRoles(guild.id).filter(role => role.id !== guild.id);
+    // stage and announcement channels only exist in a community server
+    const kinds = guild.features.has("COMMUNITY") ? KINDS : KINDS.filter(one => one.value !== 5 && one.value !== 13);
     const confirmed = picked.length <= TYPE_IT_OUT || typed.trim() === guild.name;
 
     const ordered: { channel: Channel; indented: boolean; }[] = [];
@@ -98,6 +124,13 @@ function Channels({ guild, modalProps }: { guild: Guild; modalProps: RenderModal
             if (parent && kind !== CATEGORY) body.parent_id = parent;
             if (topic.trim()) body.topic = topic.trim();
             if (nsfw) body.nsfw = true;
+            if (priv) {
+                const view = String(PermissionsBits.VIEW_CHANNEL);
+                body.permission_overwrites = [
+                    { id: guild.id, type: 0, deny: view },
+                    ...viewers.map(id => ({ id, type: 0, allow: view }))
+                ];
+            }
             if (Number.isFinite(seconds) && seconds > 0) body.rate_limit_per_user = Math.min(21600, Math.floor(seconds));
 
             await withRetry(() => RestAPI.post({
@@ -120,7 +153,7 @@ function Channels({ guild, modalProps }: { guild: Guild; modalProps: RenderModal
             Toasts.show({
                 id: Toasts.genId(),
                 type: Toasts.Type.FAILURE,
-                message: `Discord refused that: ${String((error as any)?.body?.message ?? error)}`
+                message: `Discord refused that: ${why(error)}`
             });
         } finally {
             setBusy(false);
@@ -174,11 +207,7 @@ function Channels({ guild, modalProps }: { guild: Guild; modalProps: RenderModal
             <div className={cl("safety")}>
                 <div className={cl("safety-summary")}>
                     <Text variant="text-md/semibold">Add one, or clear out several</Text>
-                    <Text variant="text-sm/normal">
-                        Deleting a channel takes every message in it with it and Discord has no way to put
-                        one back, so this half has no undo. Ticking a category does not delete what is
-                        inside it: those channels stay and just stop being in a category.
-                    </Text>
+                    <Text variant="text-sm/normal">Deleting takes the messages with it and has no undo.</Text>
                 </div>
 
                 <Forms.FormTitle tag="h5">Add a channel</Forms.FormTitle>
@@ -186,33 +215,64 @@ function Channels({ guild, modalProps }: { guild: Guild; modalProps: RenderModal
                 <div className={cl("cast-row")}>
                     <TextInput value={name} placeholder="Channel name" onChange={setName} />
                 </div>
-                <div className={cl("cast-row")}>
-                    <Text variant="text-sm/normal">Kind</Text>
-                    <Select
-                        options={KINDS}
-                        select={(value: number) => setKind(value)}
-                        isSelected={value => value === kind}
-                        serialize={String}
-                    />
-                </div>
-                {kind !== CATEGORY && (
+                <div className={cl("chan-cols")}>
                     <div className={cl("cast-row")}>
-                        <Text variant="text-sm/normal">Category</Text>
+                        <Text variant="text-sm/normal">Kind</Text>
                         <Select
-                            options={[{ label: "None", value: "" }, ...categories.map(one => ({ label: one.name, value: one.id }))]}
-                            select={(value: string) => setParent(value)}
-                            isSelected={value => value === parent}
+                            options={kinds}
+                            select={(value: number) => setKind(value)}
+                            isSelected={value => value === kind}
                             serialize={String}
                         />
                     </div>
+                    {kind !== CATEGORY && (
+                        <div className={cl("cast-row")}>
+                            <Text variant="text-sm/normal">Category</Text>
+                            <Select
+                                options={[{ label: "None", value: "" }, ...categories.map(one => ({ label: one.name, value: one.id }))]}
+                                select={(value: string) => setParent(value)}
+                                isSelected={value => value === parent}
+                                serialize={String}
+                            />
+                        </div>
+                    )}
+                </div>
+                <div className={cl("chan-cols")}>
+                    <div className={cl("cast-row")}>
+                        <TextInput value={topic} placeholder="Topic, optional" onChange={setTopic} />
+                    </div>
+                    <div className={cl("cast-row")}>
+                        <TextInput value={slow} placeholder="Slowmode seconds" onChange={setSlow} />
+                    </div>
+                </div>
+                <div className={cl("chan-switches")}>
+                    <FormSwitch hideBorder title="Age restricted" value={nsfw} disabled={busy} onChange={setNsfw} />
+                    <FormSwitch hideBorder title="Private" value={priv} disabled={busy} onChange={setPriv} />
+                </div>
+
+                {priv && !roles.length && (
+                    <Text variant="text-sm/normal" className={cl("empty-state")}>
+                        No roles here yet, so only Manage Channels holders will see it.
+                    </Text>
                 )}
-                <div className={cl("cast-row")}>
-                    <TextInput value={topic} placeholder="Topic, optional" onChange={setTopic} />
-                </div>
-                <div className={cl("cast-row")}>
-                    <TextInput value={slow} placeholder="Slowmode in seconds, optional" onChange={setSlow} />
-                </div>
-                <FormSwitch hideBorder title="Age restricted" value={nsfw} disabled={busy} onChange={setNsfw} />
+
+                {priv && roles.length > 0 && (
+                    <ScrollerThin className={cl("chan-roles")}>
+                        {roles.map(role => (
+                            <div key={role.id} className={cl("chan-row")}>
+                                <input
+                                    type="checkbox"
+                                    checked={viewers.includes(role.id)}
+                                    disabled={busy}
+                                    onChange={() => setViewers(current => current.includes(role.id)
+                                        ? current.filter(one => one !== role.id)
+                                        : [...current, role.id])}
+                                />
+                                <div className={cl("safety-title")}>{role.name}</div>
+                            </div>
+                        ))}
+                    </ScrollerThin>
+                )}
 
                 <div className={cl("power-apply")}>
                     <Text variant="text-sm/normal">
@@ -225,6 +285,14 @@ function Channels({ guild, modalProps }: { guild: Guild; modalProps: RenderModal
                     </div>
                 </div>
 
+                {editing && (
+                    <ChannelEdit
+                        guild={guild}
+                        channelId={editing}
+                        onClose={() => setEditing(null)}
+                    />
+                )}
+
                 <Forms.FormTitle tag="h5">Remove channels</Forms.FormTitle>
 
                 <ScrollerThin className={cl("scroller")} orientation="vertical">
@@ -233,8 +301,9 @@ function Channels({ guild, modalProps }: { guild: Guild; modalProps: RenderModal
                         return (
                             <div
                                 key={channel.id}
-                                className={cl("chan-row")}
+                                className={cl("chan-row", { "chan-locked": !allowed })}
                                 data-indented={indented || undefined}
+                                data-category={channel.type === CATEGORY || undefined}
                             >
                                 <input
                                     type="checkbox"
@@ -242,11 +311,17 @@ function Channels({ guild, modalProps }: { guild: Guild; modalProps: RenderModal
                                     disabled={busy || !allowed}
                                     onChange={() => toggle(channel.id)}
                                 />
-                                <div className={cl("safety-title")}>
+                                <button
+                                    type="button"
+                                    className={cl("linkish", "safety-title")}
+                                    disabled={busy}
+                                    onClick={() => setEditing(editing === channel.id ? null : channel.id)}
+                                >
                                     {channel.name}
-                                    <span className={cl("power-locked")}>{KIND_NAMES[channel.type] ?? channel.type}</span>
-                                    {!allowed && <span className={cl("power-locked")}>no permission</span>}
-                                </div>
+                                    {channel.type !== CATEGORY && channel.type !== 0 && (
+                                        <span className={cl("power-locked")}>{KIND_NAMES[channel.type] ?? channel.type}</span>
+                                    )}
+                                </button>
                             </div>
                         );
                     })}

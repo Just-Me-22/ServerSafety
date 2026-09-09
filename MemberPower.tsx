@@ -32,7 +32,7 @@ const POWERS: { perm: Permissions; label: string; }[] = [
 
 /** Discord's own order: the @everyone override, then every role override pooled
  *  together and applied once, then the one aimed at this person */
-function memberIn(channel: Channel, guildId: string, roleIds: string[], userId: string, base: bigint) {
+export function memberIn(channel: Channel, guildId: string, roleIds: string[], userId: string, base: bigint) {
     const overwrites = channel.permissionOverwrites ?? {};
     let permissions = base;
 

@@ -8,6 +8,7 @@ import { classNameFactory } from "@utils/css";
 import { Guild } from "@vencord/discord-types";
 import { ChannelStore, GuildRoleStore, RestAPI, ScrollerThin, SnowflakeUtils, Text, useEffect, useState } from "@webpack/common";
 
+import { remember } from "./cache";
 import { list, permNames, prettyPerm } from "./SafetyTab";
 
 const cl = classNameFactory("vc-ss-");
@@ -148,7 +149,8 @@ function describe(entry: RawEntry, guild: Guild): string | null {
 export async function fetchTrail(guild: Guild): Promise<TrailEntry[] | "denied"> {
     let body: Response;
     try {
-        body = (await RestAPI.get({ url: `/guilds/${guild.id}/audit-logs`, query: { limit: "100" } })).body;
+        body = await remember(`audit:${guild.id}:all`, async () =>
+            (await RestAPI.get({ url: `/guilds/${guild.id}/audit-logs`, query: { limit: "100" } })).body);
     } catch {
         return "denied";
     }
